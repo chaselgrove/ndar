@@ -1,11 +1,16 @@
 import sys
 import os
 import tempfile
+import csv
 import shutil
 import zipfile
 try:
     import boto.s3.connection
     import boto.s3.key
+except ImportError:
+    pass
+try:
+    import MySQLdb
 except ImportError:
     pass
 
@@ -31,7 +36,7 @@ def _get_file_type(fname):
 
 class _BaseImage:
 
-    """base class for image classes"""
+    """base class for images"""
 
     def __init__(self):
         # this is set to true once the temporary directory has been 
@@ -98,7 +103,7 @@ class _BaseImage:
 
 class Image(_BaseImage):
 
-    """image from file class"""
+    """image-from-file class"""
 
     def __init__(self, source):
         _BaseImage.__init__(self)
@@ -114,7 +119,7 @@ class Image(_BaseImage):
 
 class S3Image(_BaseImage):
 
-    """image from S3 class"""
+    """image-from-S3 class"""
 
     def __init__(self, source, s3_access_key, s3_secret_key):
         _BaseImage.__init__(self)
@@ -136,5 +141,51 @@ class S3Image(_BaseImage):
         s3.close()
         self._unpack()
         return
+
+class _BasePackage:
+
+    """base class for packages"""
+
+    def __init__(self):
+        return
+
+class Package(_BasePackage):
+
+    """package on disk"""
+
+    def __init__(self, path):
+        _BasePackage.__init__(self)
+        self.path = path
+        self.image03 = []
+        fo = open('%s/image03.txt' % self.path)
+        r = csv.reader(fo, delimiter='\t')
+        headers = r.next()
+        # unused
+        description = r.next()
+        self.image03 = [ dict(zip(headers, row)) for row in r ]
+        fo.close()
+        return
+
+    def image(self, image_file):
+        return Image('%s/image03/%s' % (self.path, image_file))
+
+class MySQLPackage(_BasePackage):
+
+    """package from a mysql database"""
+
+    def __init__(self, db_host, db_user, db_password, database):
+        if 'MySQLdb' not in sys.modules:
+            raise ImportError('MySQLdb module not found')
+        _BasePackage.__init__(self)
+        db = MySQLdb.connect(db_host, db_user, db_password, database)
+        c = db.cursor()
+        c.execute('SELECT * FROM image03')
+        cols = [ el[0] for el in c.description ]
+        self.image03 = [ dict(zip(cols, row)) for row in c ]
+        db.close()
+        return
+
+    def image(self, image_url, s3_access_key, s3_secret_key):
+        return S3Image(image_url, s3_access_key, s3_secret_key)
 
 # eof
