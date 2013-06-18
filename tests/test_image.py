@@ -58,25 +58,25 @@ def test_s3_bad_keys():
     path = 's3://NDAR_Central/submission_9709/T0177-1-1/NDARBF372RNH-DWI.nrrd'
     ak = 'bogus'
     sk = 'bogus'
-    nose.tools.assert_raises(Exception, lambda: ndar.Image(path, ak, sk))
+    nose.tools.assert_raises(Exception, lambda: ndar.S3Image(path, ak, sk))
 
 def test_s3_bad_bucket():
     path = 's3://bogus_bucket/submission_9709/T0177-1-1/NDARBF372RNH-DWI.nrrd'
     ak = os.environ['S3ACCESS']
     sk = os.environ['S3SECRET']
-    nose.tools.assert_raises(Exception, lambda: ndar.Image(path, ak, sk))
+    nose.tools.assert_raises(Exception, lambda: ndar.S3Image(path, ak, sk))
 
 def test_s3_bad_object():
     path = 's3://NDAR_Central/bogus_object'
     ak = os.environ['S3ACCESS']
     sk = os.environ['S3SECRET']
-    nose.tools.assert_raises(Exception, lambda: ndar.Image(path, ak, sk))
+    nose.tools.assert_raises(Exception, lambda: ndar.S3Image(path, ak, sk))
 
 def test_s3_nifti_1():
     path = 's3://NDAR_Central/submission_9575/00365B_mprage.nii.gz'
     ak = os.environ['S3ACCESS']
     sk = os.environ['S3SECRET']
-    i = ndar.Image(path, ak, sk)
+    i = ndar.S3Image(path, ak, sk)
     assert i.file_dict['NIfTI-1'] == ['00365B_mprage.nii.gz']
     for (k, v) in i.file_dict.iteritems():
         if k != 'NIfTI-1':
@@ -87,7 +87,7 @@ def test_s3_zip():
     path = 's3://NDAR_Central/submission_9275/NDARTW376PB4_FSPGR.zip'
     ak = os.environ['S3ACCESS']
     sk = os.environ['S3SECRET']
-    i = ndar.Image(path, ak, sk)
+    i = ndar.S3Image(path, ak, sk)
     assert len(i.file_dict['DICOM']) == 328
     for (k, v) in i.file_dict.iteritems():
         if k != 'DICOM':

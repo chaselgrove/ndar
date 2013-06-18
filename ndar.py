@@ -29,25 +29,20 @@ def _get_file_type(fname):
             return 'DICOM'
     return 'other'
 
-class Image:
+class _BaseImage:
 
-    """Image class"""
+    """base class for image classes"""
 
-    def __init__(self, source, s3_access_key=None, s3_secret_key=None):
-
+    def __init__(self):
         # this is set to true once the temporary directory has been 
         # created -- we just need it set now in case we fail before then 
         # and __del__() is called
         self._clean = False
         self._tempdir = tempfile.mkdtemp()
         self._clean = True
+        return
 
-        if source.startswith('s3://'):
-            if not s3_access_key and not s3_secret_key:
-                raise TypeError('S3 keys needed for S3 access')
-            self._init_from_s3(source, s3_access_key, s3_secret_key)
-        else:
-            self._init_from_file(source)
+    def _unpack(self):
 
         os.mkdir('%s/unpacked' % self._tempdir)
         self.file_dict = {'DICOM': [], 
@@ -87,7 +82,26 @@ class Image:
 
         return
 
-    def _init_from_file(self, source):
+    def __del__(self):
+        self.close()
+        return
+
+    def close(self):
+        """Clean up temporary files."""
+        if self._clean:
+            shutil.rmtree(self._tempdir)
+        return
+
+    def path(self, fname):
+        """Return the full path to a single file."""
+        return '%s/unpacked/%s' % (self._tempdir, fname)
+
+class Image(_BaseImage):
+
+    """image from file class"""
+
+    def __init__(self, source):
+        _BaseImage.__init__(self)
         self.source = os.path.abspath(source)
         if not os.path.exists(self.source):
             raise IOError(errno.ENOENT, 
@@ -95,9 +109,15 @@ class Image:
         self._source_base = os.path.basename(self.source)
         self._temp_source = '%s/%s' % (self._tempdir, self._source_base)
         os.symlink(self.source, self._temp_source)
+        self._unpack()
         return
 
-    def _init_from_s3(self, source, s3_access_key, s3_secret_key):
+class S3Image(_BaseImage):
+
+    """image from S3 class"""
+
+    def __init__(self, source, s3_access_key, s3_secret_key):
+        _BaseImage.__init__(self)
         if 'boto' not in sys.modules:
             raise ImportError('boto S3 connection module not found')
         self.source = source
@@ -114,20 +134,7 @@ class Image:
         self._temp_source = '%s/%s' % (self._tempdir, self._source_base)
         key.get_contents_to_filename(self._temp_source)
         s3.close()
+        self._unpack()
         return
-
-    def __del__(self):
-        self.close()
-        return
-
-    def close(self):
-        """Clean up temporary files."""
-        if self._clean:
-            shutil.rmtree(self._tempdir)
-        return
-
-    def path(self, fname):
-        """Return the full path to a single file."""
-        return '%s/unpacked/%s' % (self._tempdir, fname)
 
 # eof
