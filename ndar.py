@@ -190,13 +190,13 @@ class Package(_BasePackage):
     def __init__(self, path):
         _BasePackage.__init__(self)
         self.path = path
-        self.image03 = []
+        self.images = []
         fo = open('%s/image03.txt' % self.path)
         r = csv.reader(fo, delimiter='\t')
         headers = r.next()
         # unused
         description = r.next()
-        self.image03 = [ dict(zip(headers, row)) for row in r ]
+        self.images = [ dict(zip(headers, row)) for row in r ]
         fo.close()
         return
 
@@ -215,7 +215,7 @@ class MySQLPackage(_BasePackage):
         c = db.cursor()
         c.execute('SELECT * FROM image03')
         cols = [ el[0] for el in c.description ]
-        self.image03 = [ dict(zip(cols, row)) for row in c ]
+        self.images = [ dict(zip(cols, row)) for row in c ]
         db.close()
         return
 
