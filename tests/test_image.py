@@ -22,34 +22,34 @@ def test_tempdir_noremove():
 
 def test_nifti_1():
     i = ndar.Image('test_data/06025B_mprage.nii.gz')
-    assert i.file_dict['NIfTI-1'] == ['06025B_mprage.nii.gz']
-    for (k, v) in i.file_dict.iteritems():
+    assert i.files['NIfTI-1'] == ['06025B_mprage.nii.gz']
+    for (k, v) in i.files.iteritems():
         if k != 'NIfTI-1':
             assert not v
     assert os.path.exists(i.path('06025B_mprage.nii.gz'))
 
 def test_dicom():
     i = ndar.Image('test_data/NDAR_INVXT425UFT_image03_1357865972017.zip')
-    assert i.file_dict['DICOM'] == ['0001.dcm']
-    for (k, v) in i.file_dict.iteritems():
+    assert i.files['DICOM'] == ['0001.dcm']
+    for (k, v) in i.files.iteritems():
         if k != 'DICOM':
             assert not v
     assert os.path.exists(i.path('0001.dcm'))
 
 def test_brik():
     i = ndar.Image('test_data/NDAR_INVZU049GXV_image03_1326225820791.zip')
-    assert i.file_dict['BRIK'] == ['20783.spgr_at+tlrc']
-    for (k, v) in i.file_dict.iteritems():
+    assert i.files['BRIK'] == ['20783.spgr_at+tlrc']
+    for (k, v) in i.files.iteritems():
         if k != 'BRIK':
             assert not v
-    assert os.path.exists(i.path(i.file_dict['BRIK'][0] + '.HEAD'))
-    assert os.path.exists(i.path(i.file_dict['BRIK'][0] + '.BRIK'))
-    assert not os.path.exists(i.path(i.file_dict['BRIK'][0]))
+    assert os.path.exists(i.path(i.files['BRIK'][0] + '.HEAD'))
+    assert os.path.exists(i.path(i.files['BRIK'][0] + '.BRIK'))
+    assert not os.path.exists(i.path(i.files['BRIK'][0]))
 
 def test_dicom_2():
     i = ndar.Image('test_data/s1615890.zip')
-    assert len(i.file_dict['DICOM']) == 166
-    for (k, v) in i.file_dict.iteritems():
+    assert len(i.files['DICOM']) == 166
+    for (k, v) in i.files.iteritems():
         if k != 'DICOM':
             assert not v
     assert os.path.exists(i.path('i1616037.MRDC.160'))
@@ -77,8 +77,8 @@ def test_s3_nifti_1():
     ak = os.environ['S3ACCESS']
     sk = os.environ['S3SECRET']
     i = ndar.S3Image(path, ak, sk)
-    assert i.file_dict['NIfTI-1'] == ['00365B_mprage.nii.gz']
-    for (k, v) in i.file_dict.iteritems():
+    assert i.files['NIfTI-1'] == ['00365B_mprage.nii.gz']
+    for (k, v) in i.files.iteritems():
         if k != 'NIfTI-1':
             assert not v
     assert os.path.exists(i.path('00365B_mprage.nii.gz'))
@@ -88,10 +88,10 @@ def test_s3_zip():
     ak = os.environ['S3ACCESS']
     sk = os.environ['S3SECRET']
     i = ndar.S3Image(path, ak, sk)
-    assert len(i.file_dict['DICOM']) == 328
-    for (k, v) in i.file_dict.iteritems():
+    assert len(i.files['DICOM']) == 328
+    for (k, v) in i.files.iteritems():
         if k != 'DICOM':
             assert not v
-    assert os.path.exists(i.path(i.file_dict['DICOM'][0]))
+    assert os.path.exists(i.path(i.files['DICOM'][0]))
 
 # eof

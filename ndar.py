@@ -50,7 +50,7 @@ class _BaseImage:
     def _unpack(self):
 
         os.mkdir('%s/unpacked' % self._tempdir)
-        self.file_dict = {'DICOM': [], 
+        self.files = {'DICOM': [], 
                           'NIfTI-1': [], 
                           'MINC': [], 
                           'BRIK': [], 
@@ -63,26 +63,26 @@ class _BaseImage:
             zf.extractall('%s/unpacked' % self._tempdir)
             for fname in os.listdir('%s/unpacked' % self._tempdir):
                 full_path = '%s/unpacked/%s' % (self._tempdir, fname)
-                self.file_dict[_get_file_type(full_path)].append(fname)
+                self.files[_get_file_type(full_path)].append(fname)
         else:
             file_type = _get_file_type(self.source)
-            self.file_dict[file_type].append(self._source_base)
+            self.files[file_type].append(self._source_base)
             os.symlink(self._temp_source, self.path(self._source_base))
 
         # now match up .HEADs and .BRIKs
-        heads = set([ name[:-5] for name in self.file_dict['BRIK'] \
+        heads = set([ name[:-5] for name in self.files['BRIK'] \
                                 if name.endswith('.HEAD') ])
-        briks = set([ name[:-5] for name in self.file_dict['BRIK'] \
+        briks = set([ name[:-5] for name in self.files['BRIK'] \
                                 if name.endswith('.BRIK') ])
         pairs = heads.intersection(briks)
-        self.file_dict['BRIK'] = list(pairs)
+        self.files['BRIK'] = list(pairs)
         lone_heads = [ base+'.HEAD' for base in heads-pairs ]
         lone_briks = [ base+'.BRIK' for base in briks-pairs ]
-        self.file_dict['other'].extend(lone_heads)
-        self.file_dict['other'].extend(lone_briks)
+        self.files['other'].extend(lone_heads)
+        self.files['other'].extend(lone_briks)
 
         # sort the file names
-        for l in self.file_dict.itervalues():
+        for l in self.files.itervalues():
             l.sort()
 
         return
