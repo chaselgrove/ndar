@@ -16,6 +16,33 @@ try:
 except ImportError:
     pass
 
+image03_attributes = ('acquisition_matrix', 'collection_id', 
+                      'collection_title', 'comments_misc', 'dataset_id', 
+                      'decay_correction', 'extent4_type', 'extent5_type', 
+                      'flip_angle', 'frame_end_times', 'frame_end_unit', 
+                      'frame_start_times', 'frame_start_unit', 'gender', 
+                      'image_description', 'image_extent1', 'image_extent2', 
+                      'image_extent3', 'image_extent4', 'image_extent5', 
+                      'image_file', 'image_file_format', 'image_history', 
+                      'image_modality', 'image_num_dimensions', 
+                      'image_orientation', 'image_resolution1', 
+                      'image_resolution2', 'image_resolution3', 
+                      'image_resolution4', 'image_resolution5', 
+                      'image_slice_thickness', 'image_thumbnail_file', 
+                      'image_unit1', 'image_unit2', 'image_unit3', 
+                      'image_unit4', 'image_unit5', 'interview_age', 
+                      'interview_date', 'magnetic_field_strength', 
+                      'mri_echo_time_pd', 'mri_field_of_view_pd', 
+                      'mri_repetition_time_pd', 'patient_position', 
+                      'pet_isotope', 'pet_tracer', 'photomet_interpret', 
+                      'qc_description', 'qc_fail_quest_reason', 'qc_outcome', 
+                      'receive_coil', 'scanner_manufacturer_pd', 
+                      'scanner_software_versions_pd', 'scanner_type_pd', 
+                      'src_subject_id', 'subjectkey', 
+                      'time_diff_inject_to_image', 'time_diff_units', 
+                      'transformation_performed', 'transformation_type', 
+                      'transmit_coil')
+
 def NDARError(Exception):
     """base class for exceptions"""
 
@@ -54,13 +81,30 @@ class _BaseImage(object):
 
     """base class for images"""
 
-    def __init__(self):
+    def __init__(self, image03_dict=None):
         # this is set to true once the temporary directory has been 
         # created -- we just need it set now in case we fail before then 
         # and __del__() is called
         self._clean = False
         self._tempdir = tempfile.mkdtemp()
         self._clean = True
+        if image03_dict:
+            self._set_image03_attributes(image03_dict)
+        return
+
+    def _set_image03_attributes(self, image03_dict):
+        """set the image03 attributes from the passed dictionary
+        because we don't know what NDAR might actually be passing as 
+        variable names, we only pull out the ones we know (and won't conflict 
+        with other attributes)
+        """
+        for attr in image03_attributes:
+            val = image03_dict[attr]
+            # values from packages on disk may contain empty strings for 
+            # missing values; convert to None here
+            if not val:
+                val = None
+            setattr(self, attr, val)
         return
 
     def _unpack(self):
@@ -128,8 +172,8 @@ class Image(_BaseImage):
 
     """image-from-file class"""
 
-    def __init__(self, source, check_existence=False):
-        _BaseImage.__init__(self)
+    def __init__(self, source, image03_dict=None, check_existence=False):
+        _BaseImage.__init__(self, image03_dict)
         self.source = os.path.abspath(source)
         if check_existence:
             if not self.exists():
@@ -156,8 +200,10 @@ class S3Image(_BaseImage):
 
     """image-from-S3 class"""
 
-    def __init__(self, source, s3_access_key, s3_secret_key, check_existence=False):
-        _BaseImage.__init__(self)
+    def __init__(self, 
+                 source, s3_access_key, s3_secret_key, 
+                 image03_dict=None, check_existence=False):
+        _BaseImage.__init__(self, image03_dict)
         if 'boto' not in sys.modules:
             raise ImportError('boto S3 connection module not found')
         self.source = source
@@ -231,7 +277,7 @@ class Package(_BasePackage):
         for row in r:
             row_dict = dict(zip(headers, row))
             image_path = '%s/image03/%s' % (path, row_dict['image_file'])
-            self.images.append(Image(image_path))
+            self.images.append(Image(image_path, row_dict))
         fo.close()
         return
 
@@ -239,7 +285,9 @@ class MySQLPackage(_BasePackage):
 
     """package from a mysql database"""
 
-    def __init__(self, db_host, db_user, db_password, database):
+    def __init__(self, 
+                 db_host, db_user, db_password, 
+                 database, s3_access_key, s3_secret_key):
         if 'MySQLdb' not in sys.modules:
             raise ImportError('MySQLdb module not found')
         _BasePackage.__init__(self)
@@ -247,11 +295,15 @@ class MySQLPackage(_BasePackage):
         c = db.cursor()
         c.execute('SELECT * FROM image03')
         cols = [ el[0].lower() for el in c.description ]
-        self.images = [ dict(zip(cols, row)) for row in c ]
+        self.images = []
+        for row in c:
+            row_dict = dict(zip(cols, row))
+            im = S3Image(row_dict['image_file'], 
+                         s3_access_key, 
+                         s3_secret_key, 
+                         row_dict)
+            self.images.append(im)
         db.close()
         return
-
-#    def image(self, image_url, s3_access_key, s3_secret_key):
-#        return S3Image(image_url, s3_access_key, s3_secret_key)
 
 # eof

@@ -13,7 +13,9 @@ def test_mysql_package():
     package = ndar.MySQLPackage(os.environ['MYSQL_HOST'], 
                                 os.environ['MYSQL_USER'], 
                                 os.environ['MYSQL_PASSWORD'], 
-                                os.environ['MYSQL_DATABASE'])
+                                os.environ['MYSQL_DATABASE'], 
+                                os.environ['S3ACCESS'], 
+                                os.environ['S3SECRET'])
     assert len(package.images) == 7626
 
 # eof
