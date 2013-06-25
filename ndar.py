@@ -1,5 +1,6 @@
 import sys
 import os
+import errno
 import tempfile
 import csv
 import shutil
@@ -97,6 +98,13 @@ class _BaseImage(object):
         self.close()
         return
 
+    def exists(self):
+        """report whether the file or S3 object exists
+
+        must be defined in subclasses
+        """
+        raise NotImplementedError()
+
     def close(self):
         """Clean up temporary files."""
         if self._clean:
@@ -111,12 +119,13 @@ class Image(_BaseImage):
 
     """image-from-file class"""
 
-    def __init__(self, source):
+    def __init__(self, source, check_existence=True):
         _BaseImage.__init__(self)
         self.source = os.path.abspath(source)
-        if not os.path.exists(self.source):
-            raise IOError(errno.ENOENT, 
-                          "No such file or directory: '%s'" % self.source)
+        if check_existence:
+            if not self.exists():
+                raise IOError(errno.ENOENT, 
+                              "No such file or directory: '%s'" % self.source)
         self.files = None
         return
 
@@ -130,30 +139,24 @@ class Image(_BaseImage):
             return self.files
         return value
 
+    def exists(self):
+        """report whether the file or S3 object exists"""
+        return os.path.exists(self.source)
+
 class S3Image(_BaseImage):
 
     """image-from-S3 class"""
 
-    def __init__(self, source, s3_access_key, s3_secret_key):
+    def __init__(self, source, s3_access_key, s3_secret_key, check_existence=True):
         _BaseImage.__init__(self)
         if 'boto' not in sys.modules:
             raise ImportError('boto S3 connection module not found')
         self.source = source
         self._s3_access_key = s3_access_key
         self._s3_secret_key = s3_secret_key
-        # even though we don't actually download the object here, we check 
-        # it so exceptions are raised at instantiation
-        # source is 's3://bucket/path/to/object'
-        (bucket_name, object_name) = self.source[5:].split('/', 1)
-        s3 = S3Connection(self._s3_access_key, 
-                          self._s3_secret_key, 
-                          calling_format=OrdinaryCallingFormat())
-        bucket = s3.get_bucket(bucket_name)
-        key = boto.s3.key.Key(bucket)
-        key.key = object_name
-        if not key.exists():
-            raise ObjectNotFoundError()
-        s3.close()
+        if check_existence:
+            if not self.exists():
+                raise ObjectNotFoundError(source)
         self.files = None
         return
 
@@ -176,6 +179,19 @@ class S3Image(_BaseImage):
             return self.files
         return value
 
+    def exists(self):
+        """report whether the file or S3 object exists"""
+        (bucket_name, object_name) = self.source[5:].split('/', 1)
+        s3 = S3Connection(self._s3_access_key, 
+                          self._s3_secret_key, 
+                          calling_format=OrdinaryCallingFormat())
+        bucket = s3.get_bucket(bucket_name)
+        key = boto.s3.key.Key(bucket)
+        key.key = object_name
+        rv = key.exists()
+        s3.close()
+        return rv
+
 class _BasePackage:
 
     """base class for packages"""
@@ -193,15 +209,16 @@ class Package(_BasePackage):
         self.images = []
         fo = open('%s/image03.txt' % self.path)
         r = csv.reader(fo, delimiter='\t')
-        headers = r.next()
+        headers = [ el.replace('.', '_') for el in r.next() ]
         # unused
         description = r.next()
-        self.images = [ dict(zip(headers, row)) for row in r ]
+        self.images = []
+        for row in r:
+            row_dict = dict(zip(headers, row))
+            image_path = '%s/image03/%s' % (path, row_dict['image_file'])
+            self.images.append(Image(image_path))
         fo.close()
         return
-
-    def image(self, image_file):
-        return Image('%s/image03/%s' % (self.path, image_file))
 
 class MySQLPackage(_BasePackage):
 
@@ -214,12 +231,12 @@ class MySQLPackage(_BasePackage):
         db = MySQLdb.connect(db_host, db_user, db_password, database)
         c = db.cursor()
         c.execute('SELECT * FROM image03')
-        cols = [ el[0] for el in c.description ]
+        cols = [ el[0].lower() for el in c.description ]
         self.images = [ dict(zip(cols, row)) for row in c ]
         db.close()
         return
 
-    def image(self, image_url, s3_access_key, s3_secret_key):
-        return S3Image(image_url, s3_access_key, s3_secret_key)
+#    def image(self, image_url, s3_access_key, s3_secret_key):
+#        return S3Image(image_url, s3_access_key, s3_secret_key)
 
 # eof
