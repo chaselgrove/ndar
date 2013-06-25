@@ -4,7 +4,12 @@ import shutil
 import ndar
 
 def test_bad_file():
-    nose.tools.assert_raises(Exception, lambda: ndar.Image('test_data/bogus'))
+    nose.tools.assert_raises(Exception, 
+                             lambda: ndar.Image('test_data/bogus', 
+                                                check_existence=True))
+    i = ndar.Image('test_data/bogus')
+    assert not i.exists()
+    nose.tools.assert_raises(Exception, lambda: i.files)
 
 def test_tempdir_remove():
     i = ndar.Image('test_data/06025B_mprage.nii.gz')
@@ -58,19 +63,33 @@ def test_s3_bad_keys():
     path = 's3://NDAR_Central/submission_9709/T0177-1-1/NDARBF372RNH-DWI.nrrd'
     ak = 'bogus'
     sk = 'bogus'
-    nose.tools.assert_raises(Exception, lambda: ndar.S3Image(path, ak, sk))
+    nose.tools.assert_raises(Exception, 
+                             lambda: ndar.S3Image(path, ak, sk, 
+                                                  check_existence=True))
+    i = ndar.S3Image(path, ak, sk)
+    nose.tools.assert_raises(Exception, lambda: i.files)
 
 def test_s3_bad_bucket():
     path = 's3://bogus_bucket/submission_9709/T0177-1-1/NDARBF372RNH-DWI.nrrd'
     ak = os.environ['S3ACCESS']
     sk = os.environ['S3SECRET']
-    nose.tools.assert_raises(Exception, lambda: ndar.S3Image(path, ak, sk))
+    nose.tools.assert_raises(Exception, 
+                             lambda: ndar.S3Image(path, ak, sk, 
+                                                  check_existence=True))
+    i = ndar.S3Image(path, ak, sk)
+    assert not i.exists()
+    nose.tools.assert_raises(Exception, lambda: i.files)
 
 def test_s3_bad_object():
     path = 's3://NDAR_Central/bogus_object'
     ak = os.environ['S3ACCESS']
     sk = os.environ['S3SECRET']
-    nose.tools.assert_raises(Exception, lambda: ndar.S3Image(path, ak, sk))
+    nose.tools.assert_raises(Exception, 
+                             lambda: ndar.S3Image(path, ak, sk, 
+                                                  check_existence=True))
+    i = ndar.S3Image(path, ak, sk)
+    assert not i.exists()
+    nose.tools.assert_raises(Exception, lambda: i.files)
 
 def test_s3_nifti_1():
     path = 's3://NDAR_Central/submission_9575/00365B_mprage.nii.gz'

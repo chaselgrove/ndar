@@ -8,6 +8,7 @@ import zipfile
 try:
     from boto.s3.connection import OrdinaryCallingFormat, S3Connection
     import boto.s3.key
+    from boto.exception import S3ResponseError
 except ImportError:
     pass
 try:
@@ -19,7 +20,15 @@ def NDARError(Exception):
     """base class for exceptions"""
 
 def ObjectNotFoundError(NDARError):
+
     """S3 object not found"""
+
+    def __init__(self, object):
+        self.object = object
+        return
+
+    def __str__(self):
+        return 'Object not found: %s' % self.object
 
 def _get_file_type(fname):
     """Return the type of a file."""
@@ -119,7 +128,7 @@ class Image(_BaseImage):
 
     """image-from-file class"""
 
-    def __init__(self, source, check_existence=True):
+    def __init__(self, source, check_existence=False):
         _BaseImage.__init__(self)
         self.source = os.path.abspath(source)
         if check_existence:
@@ -147,7 +156,7 @@ class S3Image(_BaseImage):
 
     """image-from-S3 class"""
 
-    def __init__(self, source, s3_access_key, s3_secret_key, check_existence=True):
+    def __init__(self, source, s3_access_key, s3_secret_key, check_existence=False):
         _BaseImage.__init__(self)
         if 'boto' not in sys.modules:
             raise ImportError('boto S3 connection module not found')
@@ -185,7 +194,13 @@ class S3Image(_BaseImage):
         s3 = S3Connection(self._s3_access_key, 
                           self._s3_secret_key, 
                           calling_format=OrdinaryCallingFormat())
-        bucket = s3.get_bucket(bucket_name)
+        try:
+            bucket = s3.get_bucket(bucket_name)
+        except S3ResponseError, data:
+            if data.args[0] == 404:
+                s3.close()
+                return False
+            raise
         key = boto.s3.key.Key(bucket)
         key.key = object_name
         rv = key.exists()
