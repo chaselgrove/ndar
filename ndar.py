@@ -4,6 +4,7 @@ import errno
 import tempfile
 import csv
 import shutil
+import subprocess
 import zipfile
 try:
     from boto.s3.connection import OrdinaryCallingFormat, S3Connection
@@ -90,7 +91,41 @@ class _BaseImage(object):
         self._clean = True
         if image03_dict:
             self._set_image03_attributes(image03_dict)
+        self.nifti = None
         return
+
+    def __getattribute__(self, name):
+        value = object.__getattribute__(self, name)
+        if name == 'nifti' and value is None:
+            if self.files['NIfTI-1']:
+                value = self.files['NIfTI-1']
+            elif self.files['DICOM'] \
+                 or self.files['MINC'] \
+                 or self.files['BRIK'] \
+                 or self.files['NRRD']:
+                if self.files['DICOM']:
+                    source = self.files['DICOM'][0]
+                elif self.files['MINC']:
+                    source = self.files['MINC'][0]
+                elif self.files['BRIK']:
+                    source = '%s.BRIK' % self.files['BRIK'][0]
+                else:
+                    source = self.files['NRRD'][0]
+                value = '%s/image.nii.gz' % self._tempdir
+                fo_out = open('%s/mc_stdout' % self._tempdir, 'w')
+                fo_err = open('%s/mc_stdout' % self._tempdir, 'w')
+                args = ['mri_convert', self.path(source), value]
+                try:
+                    rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
+                except:
+                    fo_out.close()
+                    fo_err.close()
+                if rv != 0:
+                    raise AttributeError('mri_convert call failed')
+                self.nifti = value
+            else:
+                raise AttributeError('image is not a volume')
+        return value
 
     def _set_image03_attributes(self, image03_dict):
         """set the image03 attributes from the passed dictionary
