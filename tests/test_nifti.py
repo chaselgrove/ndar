@@ -5,7 +5,7 @@ import ndar
 def test_nifti_nifti():
     """image is already a NIfTI file"""
     im = ndar.Image('test_data/06025B_mprage.nii.gz')
-    assert im.nifti == im.files['NIfTI-1']
+    assert im.nifti == im.path(im.files['NIfTI-1'][0])
 
 def test_nifti_nonnifti():
     """image is not a NIfTI file"""
