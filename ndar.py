@@ -1,11 +1,14 @@
 import sys
 import os
 import errno
-import tempfile
-import csv
-import shutil
 import subprocess
+import tempfile
+import shutil
+import re
+import csv
 import zipfile
+import dicom
+import nibabel
 try:
     from boto.s3.connection import OrdinaryCallingFormat, S3Connection
     import boto.s3.key
@@ -43,6 +46,12 @@ image03_attributes = ('acquisition_matrix', 'collection_id',
                       'time_diff_inject_to_image', 'time_diff_units', 
                       'transformation_performed', 'transformation_type', 
                       'transmit_coil')
+
+dicom_date_re = re.compile('^(\d\d\d\d)(\d\d)(\d\d)$')
+
+class EXTRACT:
+    """bogus class to indicate to image constructors that attributes should 
+    be extracted from the image"""
 
 def NDARError(Exception):
     """base class for exceptions"""
@@ -82,15 +91,13 @@ class _BaseImage(object):
 
     """base class for images"""
 
-    def __init__(self, image03_dict=None):
+    def __init__(self, attrs=None):
         # this is set to true once the temporary directory has been 
         # created -- we just need it set now in case we fail before then 
         # and __del__() is called
         self._clean = False
         self._tempdir = tempfile.mkdtemp()
         self._clean = True
-        if image03_dict:
-            self._set_image03_attributes(image03_dict)
         self.nifti = None
         return
 
@@ -98,7 +105,7 @@ class _BaseImage(object):
         value = object.__getattribute__(self, name)
         if name == 'nifti' and value is None:
             if self.files['NIfTI-1']:
-                value = self.files['NIfTI-1']
+                value = self.path(self.files['NIfTI-1'][0])
             elif self.files['DICOM'] \
                  or self.files['MINC'] \
                  or self.files['BRIK'] \
@@ -127,19 +134,158 @@ class _BaseImage(object):
                 raise AttributeError('image is not a volume')
         return value
 
-    def _set_image03_attributes(self, image03_dict):
+    def _set_attributes(self, attrs=None):
+        """set attributes as desired
+
+        this should be called at the end of __init__() in derived classes
+        """
+        if isinstance(attrs, dict):
+            self.set_attributes_from_dict(attrs)
+        elif attrs == EXTRACT:
+            self.extract_attributes()
+        return
+
+    def set_attributes_from_dict(self, attrs):
         """set the image03 attributes from the passed dictionary
+
         because we don't know what NDAR might actually be passing as 
         variable names, we only pull out the ones we know (and won't conflict 
         with other attributes)
         """
-        for attr in image03_attributes:
-            val = image03_dict[attr]
+        if not isinstance(attrs, dict):
+            raise TypeError('argument must be a dictionary')
+        for attr in attrs:
+            val = attrs[attr]
             # values from packages on disk may contain empty strings for 
             # missing values; convert to None here
             if not val:
                 val = None
             setattr(self, attr, val)
+        return
+
+    def extract_attributes(self):
+        for attr in image03_attributes:
+            setattr(self, attr, None)
+        if self.files['DICOM']:
+            self._extract_attributes_from_dicom()
+        elif self.files['NIfTI-1']:
+            self.image_file_format = 'NIFTI'
+            self._extract_attributes_from_volume()
+        elif self.files['MINC']:
+            self.image_file_format = 'MINC'
+            self._extract_attributes_from_volume()
+        elif self.files['BRIK']:
+            self.image_file_format = 'AFNI'
+            self._extract_attributes_from_volume()
+        elif self.files['NRRD']:
+            self.image_file_format = 'NRRD'
+            self._extract_attributes_from_volume()
+        elif self.files['PNG']:
+            self.image_file_format = 'PNG'
+        elif self.files['JPEG']:
+            self.image_file_format = 'JPEG'
+        return
+
+    def _extract_attributes_from_volume(self):
+        """set image03 attributes that can be extracted from the 
+        (format-independent) volume"""
+        vol = nibabel.load(self.nifti)
+        try:
+            (xyz_units, t_units) = vol.get_header().xyzt_units()
+        except:
+            (xyz_units, t_units) = (None, None)
+        if xyz_units == 'mm':
+            xyz_units = 'Millimeters'
+        elif xyz_units == 'm':
+            xyz_units = 'Meters'
+        elif xyz_units == 'um':
+            xyz_units = 'Micrometers'
+        else:
+            xyz_units = None
+        if t_units == 's':
+            t_units = 'Seconds'
+        elif t_units == 'ms':
+            t_unit = 'Milliseconds'
+        elif t_units == 'ms':
+            t_unit = 'Microseconds'
+        else:
+            t_unit = None
+        self.image_num_dimensions = len(vol.shape)
+        pixdim = vol.get_header()['pixdim']
+        for i in xrange(self.image_num_dimensions):
+            setattr(self, 'image_extent%d' % (i+1), vol.shape[i])
+            setattr(self, 'image_resolution%d' % (i+1), pixdim[i+1])
+            if i < 3 and xyz_units:
+                setattr(self, 'image_unit%d' % (i+1), xyz_unit)
+            if i == 3 and t_units:
+                self.image_unit4 = t_unit
+        return
+
+    def _extract_attributes_from_dicom(self):
+        self.image_file_format = 'DICOM'
+        self._extract_attributes_from_volume()
+        do = dicom.read_file(self.path(self.files['DICOM'][0]))
+        try:
+            mo = dicom_date_re.search(do.StudyDate)
+            self.interview_date = '%s/%s/%s' % (month, day, year)
+        except:
+            self.interview_date = None
+        try:
+            self.interview_age = do.PatientAge
+        except:
+            self.interview_age = None
+        try:
+            self.gender = do.PatientSex
+        except:
+            self.gender = None
+        try:
+            self.image_modality = do.Modality
+        except:
+            self.image_modality = None
+        try:
+            self.scanner_manufacturer_pd = do.Manufacturer
+        except:
+            self.scanner_manufacturer_pd = None
+        try:
+            self.scanner_type_pd = do.ManufacturerModelName
+        except:
+            self.scanner_type_pd = None
+        try:
+            self.magnetic_field_strength = do.MagneticFieldStrength
+        except:
+            self.magnetic_field_strength = None
+        try:
+            self.mri_repetition_time_pd = str(float(do.RepetitionTime) / 1000.0)
+        except:
+            self.mri_repetition_time_pd = None
+        try:
+            self.mri_echo_time_pd = str(float(do.EchoTime) / 1000.0)
+        except:
+            self.mri_echo_time_pd = None
+        try:
+            self.flip_angle = do.FlipAngle
+        except:
+            self.flip_angle = None
+        try:
+            self.acquisition_matrix = do.AcquisitionMatrix
+        except:
+            self.acquisition_matrix = None
+        try:
+            self.patient_position = do.PatientPosition
+        except:
+            self.patient_position = None
+        try:
+            self.photomet_interpret = do.PhotometricInterpretation
+        except:
+            self.photomet_interpret = None
+        try:
+            self.receive_coil = do.ReceiveCoilName
+        except:
+            self.receive_coil = None
+        try:
+            self.transmit_coil = do.TransmitCoilName
+        except:
+            self.transmit_coil = None
         return
 
     def _unpack(self):
@@ -207,14 +353,15 @@ class Image(_BaseImage):
 
     """image-from-file class"""
 
-    def __init__(self, source, image03_dict=None, check_existence=False):
-        _BaseImage.__init__(self, image03_dict)
+    def __init__(self, source, attrs=None, check_existence=False):
+        _BaseImage.__init__(self)
         self.source = os.path.abspath(source)
         if check_existence:
             if not self.exists():
                 raise IOError(errno.ENOENT, 
                               "No such file or directory: '%s'" % self.source)
         self.files = None
+        self._set_attributes(attrs)
         return
 
     def __getattribute__(self, name):
@@ -237,8 +384,8 @@ class S3Image(_BaseImage):
 
     def __init__(self, 
                  source, s3_access_key, s3_secret_key, 
-                 image03_dict=None, check_existence=False):
-        _BaseImage.__init__(self, image03_dict)
+                 attrs=None, check_existence=False):
+        _BaseImage.__init__(self)
         if 'boto' not in sys.modules:
             raise ImportError('boto S3 connection module not found')
         self.source = source
@@ -248,6 +395,7 @@ class S3Image(_BaseImage):
             if not self.exists():
                 raise ObjectNotFoundError(source)
         self.files = None
+        self._set_attributes(attrs)
         return
 
     def __getattribute__(self, name):
