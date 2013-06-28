@@ -99,6 +99,7 @@ class _BaseImage(object):
         self._tempdir = tempfile.mkdtemp()
         self._clean = True
         self.nifti = None
+        self.thumbnail = None
         return
 
     def __getattribute__(self, name):
@@ -132,6 +133,19 @@ class _BaseImage(object):
                 self.nifti = value
             else:
                 raise AttributeError('image is not a volume')
+        if name == 'thumbnail' and value is None:
+            value = '%s/thumbnail.png' % self._tempdir
+            fo_out = open('%s/slicer_stdout' % self._tempdir, 'w')
+            fo_err = open('%s/slicer_stdout' % self._tempdir, 'w')
+            args = ['slicer', self.nifti, '-a', value]
+            try:
+                rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
+            except:
+                fo_out.close()
+                fo_err.close()
+            if rv != 0:
+                raise AttributeError('slicer call failed')
+            self.thumbnail = value
         return value
 
     def _set_attributes(self, attrs=None):
