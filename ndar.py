@@ -98,13 +98,13 @@ class _BaseImage(object):
         self._clean = False
         self._tempdir = tempfile.mkdtemp()
         self._clean = True
-        self.nifti = None
+        self.nifti_1 = None
         self.thumbnail = None
         return
 
     def __getattribute__(self, name):
         value = object.__getattribute__(self, name)
-        if name == 'nifti' and value is None:
+        if name == 'nifti_1' and value is None:
             if self.files['NIfTI-1']:
                 value = self.path(self.files['NIfTI-1'][0])
             elif self.files['DICOM'] \
@@ -130,14 +130,14 @@ class _BaseImage(object):
                     fo_err.close()
                 if rv != 0:
                     raise AttributeError('mri_convert call failed')
-                self.nifti = value
+                self.nifti_1 = value
             else:
                 raise AttributeError('image is not a volume')
         if name == 'thumbnail' and value is None:
             value = '%s/thumbnail.png' % self._tempdir
             fo_out = open('%s/slicer_stdout' % self._tempdir, 'w')
             fo_err = open('%s/slicer_stdout' % self._tempdir, 'w')
-            args = ['slicer', self.nifti, '-a', value]
+            args = ['slicer', self.nifti_1, '-a', value]
             try:
                 rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
             finally:
@@ -203,7 +203,7 @@ class _BaseImage(object):
     def _extract_attributes_from_volume(self):
         """set image03 attributes that can be extracted from the 
         (format-independent) volume"""
-        vol = nibabel.load(self.nifti)
+        vol = nibabel.load(self.nifti_1)
         try:
             (xyz_units, t_units) = vol.get_header().xyzt_units()
         except:
