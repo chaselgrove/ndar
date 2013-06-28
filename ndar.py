@@ -125,7 +125,7 @@ class _BaseImage(object):
                 args = ['mri_convert', self.path(source), value]
                 try:
                     rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
-                except:
+                finally:
                     fo_out.close()
                     fo_err.close()
                 if rv != 0:
@@ -140,7 +140,7 @@ class _BaseImage(object):
             args = ['slicer', self.nifti, '-a', value]
             try:
                 rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
-            except:
+            finally:
                 fo_out.close()
                 fo_err.close()
             if rv != 0:
