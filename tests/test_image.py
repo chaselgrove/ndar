@@ -43,13 +43,13 @@ def test_dicom():
 
 def test_brik():
     i = ndar.Image('test_data/NDAR_INVZU049GXV_image03_1326225820791.zip')
-    assert i.files['BRIK'] == ['20783.spgr_at+tlrc']
+    assert i.files['AFNI'] == ['20783.spgr_at+tlrc']
     for (k, v) in i.files.iteritems():
-        if k != 'BRIK':
+        if k != 'AFNI':
             assert not v
-    assert os.path.exists(i.path(i.files['BRIK'][0] + '.HEAD'))
-    assert os.path.exists(i.path(i.files['BRIK'][0] + '.BRIK'))
-    assert not os.path.exists(i.path(i.files['BRIK'][0]))
+    assert os.path.exists(i.path(i.files['AFNI'][0] + '.HEAD'))
+    assert os.path.exists(i.path(i.files['AFNI'][0] + '.BRIK'))
+    assert not os.path.exists(i.path(i.files['AFNI'][0]))
 
 def test_dicom_2():
     i = ndar.Image('test_data/s1615890.zip')

@@ -80,7 +80,7 @@ def _get_file_type(fname):
     if fname.endswith('.nrrd'):
         return 'NRRD'
     if fname.endswith('.HEAD') or fname.endswith('.BRIK'):
-        return 'BRIK'
+        return 'AFNI'
     with open(fname) as fo:
         fo.seek(128)
         if fo.read(4) == 'DICM':
@@ -109,14 +109,14 @@ class _BaseImage(object):
                 value = self.path(self.files['NIfTI-1'][0])
             elif self.files['DICOM'] \
                  or self.files['MINC'] \
-                 or self.files['BRIK'] \
+                 or self.files['AFNI'] \
                  or self.files['NRRD']:
                 if self.files['DICOM']:
                     source = self.files['DICOM'][0]
                 elif self.files['MINC']:
                     source = self.files['MINC'][0]
-                elif self.files['BRIK']:
-                    source = '%s.BRIK' % self.files['BRIK'][0]
+                elif self.files['AFNI']:
+                    source = '%s.BRIK' % self.files['AFNI'][0]
                 else:
                     source = self.files['NRRD'][0]
                 value = '%s/image.nii.gz' % self._tempdir
@@ -188,7 +188,7 @@ class _BaseImage(object):
         elif self.files['MINC']:
             self.image_file_format = 'MINC'
             self._extract_attributes_from_volume()
-        elif self.files['BRIK']:
+        elif self.files['AFNI']:
             self.image_file_format = 'AFNI'
             self._extract_attributes_from_volume()
         elif self.files['NRRD']:
@@ -308,7 +308,7 @@ class _BaseImage(object):
         self.files = {'DICOM': [], 
                       'NIfTI-1': [], 
                       'MINC': [], 
-                      'BRIK': [], 
+                      'AFNI': [], 
                       'NRRD': [], 
                       'PNG': [], 
                       'JPEG': [], 
@@ -325,12 +325,12 @@ class _BaseImage(object):
             os.symlink(self._temp_source, self.path(self._source_base))
 
         # now match up .HEADs and .BRIKs
-        heads = set([ name[:-5] for name in self.files['BRIK'] \
+        heads = set([ name[:-5] for name in self.files['AFNI'] \
                                 if name.endswith('.HEAD') ])
-        briks = set([ name[:-5] for name in self.files['BRIK'] \
+        briks = set([ name[:-5] for name in self.files['AFNI'] \
                                 if name.endswith('.BRIK') ])
         pairs = heads.intersection(briks)
-        self.files['BRIK'] = list(pairs)
+        self.files['AFNI'] = list(pairs)
         lone_heads = [ base+'.HEAD' for base in heads-pairs ]
         lone_briks = [ base+'.BRIK' for base in briks-pairs ]
         self.files['other'].extend(lone_heads)
