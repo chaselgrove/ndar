@@ -20,7 +20,7 @@ def test_tempdir_remove():
 def test_tempdir_noremove():
     i = ndar.Image('test_data/06025B_mprage.nii.gz')
     tempdir = i._tempdir
-    i._clean = False
+    i._clean_on_del = False
     del i
     assert os.path.exists(tempdir)
     shutil.rmtree(tempdir)

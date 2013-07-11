@@ -92,7 +92,7 @@ class _BaseImage(object):
     """base class for images"""
 
     def __init__(self, attrs=None):
-        self._clean = True
+        self._clean_on_del = True
         self._tempdir = None
         self.nifti_1 = None
         self.thumbnail = None
@@ -342,7 +342,8 @@ class _BaseImage(object):
         return
 
     def __del__(self):
-        self.close()
+        if self._clean_on_del:
+            self.clean()
         return
 
     def exists(self):
@@ -352,10 +353,13 @@ class _BaseImage(object):
         """
         raise NotImplementedError()
 
-    def close(self):
+    def clean(self):
         """Clean up temporary files."""
-        if self._clean:
-            shutil.rmtree(self._tempdir)
+        shutil.rmtree(self._tempdir)
+        self._tempdir = None
+        self.files = None
+        self.nifti_1 = None
+        self.thumbnail = None
         return
 
     def path(self, fname):
