@@ -92,18 +92,17 @@ class _BaseImage(object):
     """base class for images"""
 
     def __init__(self, attrs=None):
-        # this is set to true once the temporary directory has been 
-        # created -- we just need it set now in case we fail before then 
-        # and __del__() is called
-        self._clean = False
-        self._tempdir = tempfile.mkdtemp()
         self._clean = True
+        self._tempdir = None
         self.nifti_1 = None
         self.thumbnail = None
         return
 
     def __getattribute__(self, name):
         value = object.__getattribute__(self, name)
+        if name == '_tempdir' and value is None:
+            value = tempfile.mkdtemp()
+            self._tempdir = value
         if name == 'nifti_1' and value is None:
             if self.files['NIfTI-1']:
                 value = self.path(self.files['NIfTI-1'][0])
