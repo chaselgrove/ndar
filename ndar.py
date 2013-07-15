@@ -96,7 +96,37 @@ class _BaseImage(object):
         self._tempdir = None
         self.nifti_1 = None
         self.thumbnail = None
+        # see _resample_scalar_volume() below
+        self._allow_resample_scalar_volume = False
         return
+
+    def _mri_convert(self, source, output):
+        fo_out = open('%s/mc_stdout' % self._tempdir, 'w')
+        fo_err = open('%s/mc_stdout' % self._tempdir, 'w')
+        args = ['mri_convert', self.path(source), output]
+        try:
+            rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
+        finally:
+            fo_out.close()
+            fo_err.close()
+        return rv == 0
+
+    def _resample_scalar_volume(self, source, output):
+        # I (ch) need this conversion temporarily, but it might not be 
+        # appropriate for all scans.  This check makes sure that 
+        # this conversion won't be called triggered unless explicitly 
+        # requested.
+        if not self._allow_resample_scalar_volume:
+            return False
+        fo_out = open('%s/rss_stdout' % self._tempdir, 'w')
+        fo_err = open('%s/rss_stdout' % self._tempdir, 'w')
+        args = ['ResampleScalarVolume', self.path(source), output]
+        try:
+            rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
+        finally:
+            fo_out.close()
+            fo_err.close()
+        return rv == 0
 
     def __getattribute__(self, name):
         value = object.__getattribute__(self, name)
@@ -119,16 +149,12 @@ class _BaseImage(object):
                 else:
                     source = self.files['NRRD'][0]
                 value = '%s/image.nii.gz' % self._tempdir
-                fo_out = open('%s/mc_stdout' % self._tempdir, 'w')
-                fo_err = open('%s/mc_stdout' % self._tempdir, 'w')
-                args = ['mri_convert', self.path(source), value]
-                try:
-                    rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
-                finally:
-                    fo_out.close()
-                    fo_err.close()
-                if rv != 0:
-                    raise AttributeError('mri_convert call failed')
+                if self._mri_convert(source, value):
+                    pass
+                elif self._resample_scalar_volume(source, value):
+                    pass
+                else:
+                    raise AttributeError('conversion to NIfTI-1 failed')
                 self.nifti_1 = value
             else:
                 raise AttributeError('image is not a volume')
