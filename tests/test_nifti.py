@@ -7,6 +7,11 @@ def test_nifti_nifti():
     im = ndar.Image('test_data/06025B_mprage.nii.gz')
     assert im.nifti_1 == im.path(im.files['NIfTI-1'][0])
 
+def test_nifti_unzipped_nifti():
+    """image is already a NIfTI-1 file"""
+    im = ndar.Image('test_data/a.nii')
+    assert im.nifti_1 == im.path(im.files['NIfTI-1'][0])
+
 def test_nifti_nonnifti():
     """image is not a NIfTI-1 file"""
     im = ndar.Image('test_data/NDAR_INVZU049GXV_image03_1326225820791.zip')

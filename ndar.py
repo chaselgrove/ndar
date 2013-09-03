@@ -69,7 +69,7 @@ def ObjectNotFoundError(NDARError):
 
 def _get_file_type(fname):
     """Return the type of a file."""
-    if fname.endswith('.nii.gz'):
+    if fname.endswith('.nii.gz') or fname.endswith('.nii'):
         return 'NIfTI-1'
     if fname.endswith('.png'):
         return 'PNG'
