@@ -27,4 +27,16 @@ def test_nifti_mcfail():
     im = ndar.Image('test_data/bogus.mnc')
     nose.tools.assert_raises(AttributeError, lambda: im.nifti_1)
 
+def test_nifti_nifti_gz():
+    """image is a gzipped NIfTI-1 file"""
+    im = ndar.Image('test_data/06025B_mprage.nii.gz')
+    assert im.nifti_1_gz == im.path(im.files['NIfTI-1'][0])
+
+def test_nifti_unzipped_nifti_gz():
+    """image is an unzipped NIfTI-1 file"""
+    im = ndar.Image('test_data/a.nii')
+    assert im.nifti_1_gz != im.path(im.files['NIfTI-1'][0])
+    assert im.nifti_1_gz.endswith('.nii.gz')
+    assert os.path.exists(im.nifti_1_gz)
+
 # eof

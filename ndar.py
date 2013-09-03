@@ -6,6 +6,7 @@ import tempfile
 import shutil
 import re
 import csv
+import gzip
 import zipfile
 import dicom
 import nibabel
@@ -95,6 +96,7 @@ class _BaseImage(object):
         self._clean_on_del = True
         self._tempdir = None
         self.nifti_1 = None
+        self.nifti_1_gz = None
         self.thumbnail = None
         # see _resample_scalar_volume() below
         self._allow_resample_scalar_volume = False
@@ -158,6 +160,17 @@ class _BaseImage(object):
                 self.nifti_1 = value
             else:
                 raise AttributeError('image is not a volume')
+        if name == 'nifti_1_gz' and value is None:
+            if self.nifti_1.endswith('.nii.gz'):
+                value = self.nifti_1
+            else:
+                value = '%s.gz' % self.nifti_1
+                fin = open(self.nifti_1)
+                fout = gzip.open(value, 'w')
+                fout.write(fin.read())
+                fout.close()
+                fin.close()
+            self.nifti_1_gz = value
         if name == 'thumbnail' and value is None:
             value = '%s/thumbnail.png' % self._tempdir
             fo_out = open('%s/slicer_stdout' % self._tempdir, 'w')
@@ -385,6 +398,7 @@ class _BaseImage(object):
         self._tempdir = None
         self.files = None
         self.nifti_1 = None
+        self.nifti_1_gz = None
         self.thumbnail = None
         return
 
