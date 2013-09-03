@@ -345,7 +345,7 @@ class _BaseImage(object):
                 full_path = '%s/unpacked/%s' % (self._tempdir, fname)
                 self.files[_get_file_type(full_path)].append(fname)
         else:
-            file_type = _get_file_type(self.source)
+            file_type = _get_file_type(self._temp_source)
             self.files[file_type].append(self._source_base)
             os.symlink(self._temp_source, self.path(self._source_base))
 
