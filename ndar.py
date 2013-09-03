@@ -164,7 +164,7 @@ class _BaseImage(object):
             if self.nifti_1.endswith('.nii.gz'):
                 value = self.nifti_1
             else:
-                value = '%s.gz' % self.nifti_1
+                value = '%s/image.nii.gz' % self._tempdir
                 fin = open(self.nifti_1)
                 fout = gzip.open(value, 'w')
                 fout.write(fin.read())
