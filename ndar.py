@@ -97,6 +97,7 @@ class _BaseImage(object):
         self._tempdir = None
         self.nifti_1 = None
         self.nifti_1_gz = None
+        self.afni = None
         self.thumbnail = None
         # see _resample_scalar_volume() below
         self._allow_resample_scalar_volume = False
@@ -106,6 +107,17 @@ class _BaseImage(object):
         fo_out = open('%s/mc_stdout' % self._tempdir, 'w')
         fo_err = open('%s/mc_stdout' % self._tempdir, 'w')
         args = ['mri_convert', self.path(source), output]
+        try:
+            rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
+        finally:
+            fo_out.close()
+            fo_err.close()
+        return rv == 0
+
+    def _3dcopy(self, source, output):
+        fo_out = open('%s/3dcopy_stdout' % self._tempdir, 'w')
+        fo_err = open('%s/3dcopy_stdout' % self._tempdir, 'w')
+        args = ['3dcopy', source, output]
         try:
             rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
         finally:
@@ -171,6 +183,27 @@ class _BaseImage(object):
                 fout.close()
                 fin.close()
             self.nifti_1_gz = value
+        if name == 'afni' and value is None:
+            if self.files['AFNI']:
+                value = self.path(self.files['AFNI'][0])
+            elif self.files['DICOM'] \
+                 or self.files['MINC'] \
+                 or self.files['NIfTI-1'] \
+                 or self.files['NRRD']:
+                if self.files['DICOM']:
+                    source = self.nifti_1
+                elif self.files['MINC']:
+                    source = self.path(self.files['MINC'][0])
+                elif self.files['NIfTI-1']:
+                    source = self.path(self.files['NIfTI-1'][0])
+                else:
+                    source = self.path(self.files['NRRD'][0])
+                value = '%s/image+orig' % self._tempdir
+                if not self._3dcopy(source, value):
+                    raise AttributeError('conversion to AFNI failed')
+                self.afni = value
+            else:
+                raise AttributeError('image is not a volume')
         if name == 'thumbnail' and value is None:
             value = '%s/thumbnail.png' % self._tempdir
             fo_out = open('%s/slicer_stdout' % self._tempdir, 'w')
@@ -399,6 +432,7 @@ class _BaseImage(object):
         self.files = None
         self.nifti_1 = None
         self.nifti_1_gz = None
+        self.afni = None
         self.thumbnail = None
         return
 
