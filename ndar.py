@@ -98,6 +98,7 @@ class _BaseImage(object):
         self.nifti_1 = None
         self.nifti_1_gz = None
         self.afni = None
+        self.xcede = None
         self.thumbnail = None
         # see _resample_scalar_volume() below
         self._allow_resample_scalar_volume = False
@@ -118,6 +119,41 @@ class _BaseImage(object):
         fo_out = open('%s/3dcopy_stdout' % self._tempdir, 'w')
         fo_err = open('%s/3dcopy_stdout' % self._tempdir, 'w')
         args = ['3dcopy', source, output]
+        try:
+            rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
+        finally:
+            fo_out.close()
+            fo_err.close()
+        return rv == 0
+
+    def _dicom2bxh(self, source, output):
+        fo_out = open('%s/dicom2bxh_stdout' % self._tempdir, 'w')
+        fo_err = open('%s/dicom2bxh_stdout' % self._tempdir, 'w')
+        args = ['dicom2bxh', '--xcede']
+        args.extend(source)
+        args.append(output)
+        try:
+            rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
+        finally:
+            fo_out.close()
+            fo_err.close()
+        return rv == 0
+
+    def _afni2bxh(self, source, output):
+        fo_out = open('%s/afni2bxh_stdout' % self._tempdir, 'w')
+        fo_err = open('%s/afni2bxh_stdout' % self._tempdir, 'w')
+        args = ['afni2bxh', '--xcede', source, output]
+        try:
+            rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
+        finally:
+            fo_out.close()
+            fo_err.close()
+        return rv == 0
+
+    def _nrrd2bxh(self, source, output):
+        fo_out = open('%s/nrrd2bxh_stdout' % self._tempdir, 'w')
+        fo_err = open('%s/nrrd2bxh_stdout' % self._tempdir, 'w')
+        args = ['nrrd2bxh', '--xcede', source, output]
         try:
             rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
         finally:
@@ -204,6 +240,33 @@ class _BaseImage(object):
                 self.afni = value
             else:
                 raise AttributeError('image is not a volume')
+
+        if name == 'xcede' and value is None:
+            if self.files['DICOM'] \
+               or self.files['AFNI'] \
+               or self.files['MINC'] \
+               or self.files['NIfTI-1'] \
+               or self.files['NRRD']:
+                value = '%s/image.xcede' % self._tempdir
+                if self.files['DICOM']:
+                    source = [ self.path(f) for f in self.files['DICOM'] ]
+                    rv = self._dicom2bxh(source, value)
+                elif self.files['AFNI']:
+                    source = '%s.HEAD' % self.path(self.files['AFNI'][0])
+                    rv = self._afni2bxh(source, value)
+                elif self.files['MINC']:
+                    rv = self._afni2bxh('%s.HEAD' % self.afni, value)
+                elif self.files['NIfTI-1']:
+                    rv = self._afni2bxh('%s.HEAD' % self.afni, value)
+                else:
+                    source = self.path(self.files['NRRD'][0])
+                    rv = self._nrrd2bxh(source, value)
+                if not rv:
+                    raise AttributeError('XCEDE generation failed')
+                self.xcede = value
+            else:
+                raise AttributeError('image is not a volume')
+
         if name == 'thumbnail' and value is None:
             value = '%s/thumbnail.png' % self._tempdir
             fo_out = open('%s/slicer_stdout' % self._tempdir, 'w')
@@ -433,6 +496,7 @@ class _BaseImage(object):
         self.nifti_1 = None
         self.nifti_1_gz = None
         self.afni = None
+        self.xcede = None
         self.thumbnail = None
         return
 
