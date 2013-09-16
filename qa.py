@@ -73,17 +73,11 @@ class StructuralQAWorkflow(np_pe.Workflow):
     def run(self):
         return np_pe.Workflow.run(self)
 
-def run_time_series_qa(dicom_files, base_dir):
-    xcede_fname = '%s/scan.xcede' % base_dir
-    output_dir = '%s/fmriqa' % base_dir
-    args = ['dicom2bxh', '--xcede']
-    args.extend(dicom_files)
-    args.append(xcede_fname)
+def run_time_series_qa(xcede_file, output_dir):
+    args = ['fmriqa_generate.pl', '--verbose', xcede_file, output_dir]
+    print args
     subprocess.check_call(args)
-    os.mkdir(output_dir)
-    args = ['fmria_generate.pl', '--verbose', xcede_fname, output_dir]
-    subprocess.check_call(args)
-    return output_dir
+    return
 
 def run_diffusion_qa(nrrd_file, base_dir):
     os.chdir(base_dir)
