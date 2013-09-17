@@ -263,6 +263,10 @@ class _BaseImage(object):
                     rv = self._nrrd2bxh(source, value)
                 if not rv:
                     raise AttributeError('XCEDE generation failed')
+                if not os.path.exists(value):
+                    # this could happen if two xcede files are generated; 
+                    # for now, panic and bail
+                    raise AttributeError('XCEDE generation failed')
                 self.xcede = value
             else:
                 raise AttributeError('image is not a volume')
