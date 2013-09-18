@@ -99,6 +99,7 @@ class _BaseImage(object):
         self.nifti_1_gz = None
         self.afni = None
         self.xcede = None
+        self.nrrd = None
         self.thumbnail = None
         # see _resample_scalar_volume() below
         self._allow_resample_scalar_volume = False
@@ -154,6 +155,23 @@ class _BaseImage(object):
         fo_out = open('%s/nrrd2bxh_stdout' % self._tempdir, 'w')
         fo_err = open('%s/nrrd2bxh_stdout' % self._tempdir, 'w')
         args = ['nrrd2bxh', '--xcede', source, output]
+        try:
+            rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
+        finally:
+            fo_out.close()
+            fo_err.close()
+        return rv == 0
+
+    def _DicomToNrrdConverter(self, source, output):
+        fo_out = open('%s/DicomToNrrdConverter_stdout' % self._tempdir, 'w')
+        fo_err = open('%s/DicomToNrrdConverter_stdout' % self._tempdir, 'w')
+        args = ['DicomToNrrdConverter', 
+                '--inputDicomDirectory', 
+                source, 
+                '--outputDirectory', 
+                os.path.dirname(output), 
+                '--outputVolume', 
+                os.path.basename(output)]
         try:
             rv = subprocess.call(args, stdout=fo_out, stderr=fo_err)
         finally:
@@ -240,7 +258,6 @@ class _BaseImage(object):
                 self.afni = value
             else:
                 raise AttributeError('image is not a volume')
-
         if name == 'xcede' and value is None:
             if self.files['DICOM'] \
                or self.files['AFNI'] \
@@ -270,7 +287,23 @@ class _BaseImage(object):
                 self.xcede = value
             else:
                 raise AttributeError('image is not a volume')
-
+        if name == 'nrrd' and value is None:
+            if self.files['NRRD']:
+                value = self.path(self.files['NRRD'][0])
+            elif self.files['DICOM']:
+                value = '%s/image.nrrd' % self._tempdir
+                source = os.path.dirname(self.path(self.files['DICOM'][0]))
+                if not self._DicomToNrrdConverter(source, value):
+                    raise AttributeError('XCEDE generation failed')
+            elif self.files['AFNI']:
+                raise AttributeError('NRRD conversion for AFNI not supported')
+            elif self.files['MINC']:
+                raise AttributeError('NRRD conversion for MINC not supported')
+            elif self.files['NIfTI-1']:
+                raise AttributeError('NRRD conversion for NIfTI-1 not supported')
+            else:
+                raise AttributeError('image is not a volume')
+            self.ndar = value
         if name == 'thumbnail' and value is None:
             value = '%s/thumbnail.png' % self._tempdir
             fo_out = open('%s/slicer_stdout' % self._tempdir, 'w')
@@ -501,6 +534,7 @@ class _BaseImage(object):
         self.nifti_1_gz = None
         self.afni = None
         self.xcede = None
+        self.nrrd = None
         self.thumbnail = None
         return
 
