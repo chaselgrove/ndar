@@ -294,7 +294,7 @@ class _BaseImage(object):
                 value = '%s/image.nrrd' % self._tempdir
                 source = os.path.dirname(self.path(self.files['DICOM'][0]))
                 if not self._DicomToNrrdConverter(source, value):
-                    raise AttributeError('XCEDE generation failed')
+                    raise AttributeError('DicomToNrrdConverter failed')
             elif self.files['AFNI']:
                 raise AttributeError('NRRD conversion for AFNI not supported')
             elif self.files['MINC']:
