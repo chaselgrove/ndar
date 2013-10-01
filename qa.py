@@ -80,9 +80,13 @@ def run_time_series_qa(xcede_file, output_dir):
     return
 
 def run_diffusion_qa(nrrd_file, base_dir):
+    cwd = os.getcwd()
     os.chdir(base_dir)
-    args = ['DTIPrep', '-w', nrrd_file, '-p', 'default', '-d', '-c']
-    subprocess.check_call(args)
+    try:
+        args = ['DTIPrep', '-w', nrrd_file, '-p', 'default', '-d', '-c']
+        subprocess.check_call(args)
+    finally:
+        os.chdir(cwd)
     return
 
 # eof
