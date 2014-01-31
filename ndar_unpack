@@ -1,0 +1,622 @@
+#!/usr/bin/python
+
+# See file COPYING distributed with the this code for the copyright
+# and license.
+
+import sys
+import os
+import traceback
+import errno
+import argparse
+import subprocess
+import re
+import tempfile
+import shutil
+import zipfile
+import json
+import dicom
+import boto.s3.connection
+import nibabel
+
+description = """
+
+ndar_unpack checks, describes, and unpacks imaging data from NDAR.
+
+There are three main functions:
+
+    Check: report whether the packaged data is sensible.  Is it just a header 
+           without volume data?  Is it not volume data at all?  Every 
+           ndar_unpack run first checks the data.
+
+    Describe: derive as much of the image03 structure as possible from the 
+              data itself.
+
+    Unpack: create a volume of a given format or a thumbnail image from the 
+            data.
+
+There are a number of outcomes from an ndar_unpack run.  Outcomes and their 
+exit values are:
+
+    Data is okay, and a successful ndar_unpack run.  Returns 0.
+
+    Error in running ndar_unpack.  This is when ndar_unpack could not run 
+    to completion for some reason, with the exception of the following 
+    cases.  Returns 1.
+
+    Command line error.  Mind your -ps and -qs.  Returns 2.
+
+    Bad data.  The data is bad.  Maybe it's empty; maybe it's in an 
+    unsupported format.  Returns 3.
+
+    Undetermined outcome: ndar_unpack failed to run as expected, but not 
+    in a way that indicates permanent failure.  This is the case if a 
+    helper program doesn't exist or if the data looks okay, but 
+    ndar_unpack hasn't been developed to the point of supporting it.  
+    Returns 4.
+
+Written by Christian Haselgrove, 2014.
+
+"""
+
+image03_fields = ('subjectkey', 'src_subject_id', 'interview_date', 
+                  'interview_age', 'gender', 'comments_misc', 'image_file', 
+                  'image_thumbnail_file', 'image_description', 
+                  'image_file_format', 'image_modality', 
+                  'scanner_manufacturer_pd', 'scanner_type_pd', 
+                  'scanner_software_versions_pd', 'magnetic_field_strength', 
+                  'mri_repetition_time_pd', 'mri_echo_time_pd', 'flip_angle', 
+                  'acquisition_matrix', 'mri_field_of_view_pd', 
+                  'patient_position', 'photomet_interpret', 'receive_coil', 
+                  'transmit_coil', 'transformation_performed', 
+                  'transformation_type', 'image_history', 
+                  'image_num_dimensions', 'image_extent1', 'image_extent2', 
+                  'image_extent3', 'image_extent4', 'extent4_type', 
+                  'image_extent5', 'extent5_type', 'image_unit1', 
+                  'image_unit2', 'image_unit3', 'image_unit4', 'image_unit5', 
+                  'image_resolution1', 'image_resolution2', 
+                  'image_resolution3', 'image_resolution4', 
+                  'image_resolution5', 'image_slice_thickness', 
+                  'image_orientation', 'qc_outcome', 'qc_description', 
+                  'qc_fail_quest_reason', 'time_diff_units', 
+                  'decay_correction', 'frame_end_times', 'frame_end_unit', 
+                  'frame_start_times', 'frame_start_unit', 'pet_isotope', 
+                  'pet_tracer', 'time_diff_inject_to_image', 'pulse_seq', 
+                  'slice_acquisition', 'software_preproc', 'experiment_id', 
+                  'scan_type', 'data_file2', 'data_file2_type')
+
+def convert_dicom_time(val):
+    return str(float(val)/1000.0)
+
+def convert_dicom_date(val):
+    mo = dicom_date_re.search(val)
+    if mo is None:
+        return None
+    return '%s/%s/%s' % (mo.groupdict['month'], 
+                         mo.groupdict['day'], 
+                         mo.groupdict['year'])
+
+def convert_dicom_float(val):
+    if not isinstance(val, dicom.valuerep.DSfloat):
+        return None
+    return float(val)
+
+dicom_date_re = re.compile('^(P<year>\d\d\d\d)(P<month>\d\d)(P<day>\d\d)$')
+
+# image03 field => (DICOM tag, formatting/conversion function)
+image03_dicom = {'gender': ('PatientSex', None), 
+                 'image_modality': ('Modality', None), 
+                 'scanner_manufacturer_pd': ('Manufacturer', None), 
+                 'scanner_type_pd': ('ManufacturerModelName', None), 
+                 'magnetic_field_strength': ('MagneticFieldStrength', 
+                                             convert_dicom_float),  
+                 'flip_angle': ('FlipAngle', convert_dicom_float), 
+                 'acquisition_matrix': ('AcquisitionMatrix', None), 
+                 'patient_position': ('PatientPosition', None), 
+                 'photomet_interpret': ('PhotometricInterpretation', None), 
+                 'receive_coil': ('ReceiveCoilName', None), 
+                 'transmit_coil': ('TransmitCoilName', None), 
+                 'interview_date': ('StudyDate', convert_dicom_date), 
+                 'mri_repetition_time_pd': ('RepititionTime', 
+                                            convert_dicom_time),
+                 'mri_echo_time_pd': ('EchoTime', convert_dicom_time)}
+
+#############################################################################
+# exceptions
+#
+
+class BaseError(Exception):
+
+    """base class for exceptions"""
+
+    def __init__(self, error):
+        self.error = error
+
+    def __str__(self):
+        return self.error
+
+class DataError(BaseError):
+
+    """error in the data"""
+
+    def __str__(self):
+        return 'bad data: %s' % self.error
+
+class UndeterminedError(BaseError):
+
+    """undetermined error"""
+
+    def __str__(self):
+        return 'undetermined error: %s' % self.error
+
+class GeneralError(BaseError):
+
+    """error running"""
+
+#############################################################################
+# classes
+#
+
+class BaseData:
+
+    def __init__(self, clean_flag):
+        self.clean_flag = clean_flag
+        self.tempdir = tempfile.mkdtemp()
+        debug('created temporary directory %s' % self.tempdir)
+        self.source_dir = os.path.join(self.tempdir, 'source')
+        os.mkdir(self.source_dir)
+        self.unpacked_dir = os.path.join(self.tempdir, 'unpacked')
+        os.mkdir(self.unpacked_dir)
+        self.output_dir = os.path.join(self.tempdir, 'output')
+        os.mkdir(self.output_dir)
+        # a serial number for process output
+        self.process_index = 0
+        # how the zip file is packaged; an object whose type is a 
+        # subclass of BaseZipFileScheme
+        self.zip_scheme = None
+        self._image03 = None
+        return
+
+    @property
+    def image03(self):
+        if self._image03:
+            return self._image03
+        self._image03 = {}
+        for field in image03_fields:
+            self._image03[field] = None
+        vol = nibabel.load(self.nii_gz())
+        try:
+            (xyz_units, t_units) = vol.get_header().get_xyzt_units()
+        except:
+            (xyz_units, t_units) = (None, None)
+        if xyz_units == 'mm':
+            xyz_units = 'Millimeters'
+        elif xyz_units == 'm':
+            xyz_units = 'Meters'
+        elif xyz_units == 'um':
+            xyz_units = 'Micrometers'
+        else:
+            xyz_units = None
+        if t_units == 's':
+            t_units = 'Seconds'
+        elif t_units == 'ms':
+            t_unit = 'Milliseconds'
+        elif t_units == 'ms':
+            t_unit = 'Microseconds'
+        else:
+            t_unit = None
+        self.image_num_dimensions = len(vol.shape)
+        pixdim = vol.get_header()['pixdim']
+        for i in xrange(self.image_num_dimensions):
+            self._image03['image_extent%d' % (i+1)] = vol.shape[i]
+            self._image03['image_resolution%d' % (i+1)] = float(pixdim[i+1])
+            if i < 3 and xyz_units:
+                self._image03['image_unit%d' % (i+1)] = xyz_units
+            if i == 3 and t_units:
+                self._image03['image_unit4'] = t_unit
+        if self.source.endswith('.zip'):
+            self.zip_scheme.update_image03(self._image03)
+        return self._image03
+
+    def clean(self):
+        if not os.path.exists(self.tempdir):
+            return
+        if self.clean_flag:
+            debug('removing temporary directory %s' % self.tempdir)
+            shutil.rmtree(self.tempdir)
+        else:
+            notice('leaving temporary directory %s' % self.tempdir)
+        return
+
+    def call(self, args):
+        debug('running (%d) %s' % (self.process_index, ' '.join(args)))
+        stdout_f = None
+        stderr_f = None
+        stdout_fname = os.path.join(self.output_dir, 
+                                    '%d.out' % self.process_index)
+        stderr_fname = os.path.join(self.output_dir, 
+                                    '%d.err' % self.process_index)
+        try:
+            stdout_f = open(stdout_fname, 'w')
+            stderr_f = open(stderr_fname, 'w')
+            self.process_index += 1
+            rv = subprocess.call(args, stdout=stdout_f, stderr=stderr_f)
+        except OSError, exc:
+            if exc.errno == errno.ENOENT:
+                message = 'couldn\'t find %s' % args[0]
+            else:
+                message = str(exc)
+            raise UndeterminedError(message)
+        finally:
+            if stdout_f:
+                stdout_f.close()
+            if stderr_f:
+                stderr_f.close()
+        if rv < 0:
+            raise UndeterminedError('%s killed by signal %d' % (args[0], -rv))
+        if args[0] == 'mri_convert':
+            stderr = open(stderr_fname).read()
+            if 'ERROR: FreeSurfer license file' in stderr:
+                raise UndeterminedError('FreeSurfer license not found')
+        return rv
+
+    def check_call(self, args):
+        rv = self.call(args)
+        if rv:
+            raise GeneralError('error running %s' % args[0])
+        return
+
+    def check(self):
+        if self.source.endswith('.nii.gz'):
+            self._check_nii_gz()
+        elif self.source.endswith('.nii'):
+            self._check_nii()
+        elif self.source.endswith('.zip'):
+            self._check_zip()
+        elif self.source.endswith('.nrrd'):
+            raise UndeterminedError('NRRD not handled')
+        elif self.source.endswith('.mnc'):
+            raise UndeterminedError('MINC not handled')
+        else:
+            raise DataError('bad extension on %s' % \
+                            os.path.basename(self.source))
+        return
+
+    def nii_gz(self, path=None):
+        # if no destination is specified, create one of our own (or return 
+        # the original volume)
+        if not path:
+            if self.source.endswith('.nii.gz'):
+                return self.source
+            path = os.path.join(self.tempdir, 'volume.nii.gz')
+            if os.path.exists(path):
+                return path
+        if self.source.endswith('.nii.gz'):
+            shutil.copy(self.source, path)
+        elif self.source.endswith('.nii'):
+            self.check_call(['mri_convert', self.source, path])
+        elif self.source.endswith('.zip'):
+            self.zip_scheme.nii_gz(path)
+        else:
+            raise NotImplementedError('can\'t create .nii.gz from source')
+        return path
+
+    def _check_nii_gz(self):
+        debug('checking .nii.gz')
+        rv = self.call(['mri_convert', '-ro', self.source])
+        if rv:
+            raise DataError('data appears corrupt')
+        return
+
+    def _check_nii(self):
+        debug('checking .nii')
+        rv = self.call(['mri_convert', '-ro', self.source])
+        if rv:
+            raise DataError('data appears corrupt')
+        return
+
+    def _check_zip(self):
+        debug('checking zip file')
+        try:
+            zf = zipfile.ZipFile(self.source)
+            zf.extractall(self.unpacked_dir)
+            zf.close()
+        except zipfile.BadZipfile:
+            raise DataError('error in zip file')
+        self._inspect_zip()
+        return
+
+    def _inspect_zip(self):
+        scheme = DICOMScheme(self)
+        if scheme.check():
+            debug('zip file scheme is DICOM')
+            self.zip_scheme = scheme
+            return
+        scheme = NiiGzScheme(self)
+        if scheme.check():
+            debug('zip file scheme is nii.gz')
+            self.zip_scheme = scheme
+            return
+        raise DataError('contents of zip file not understood')
+        return
+
+class BaseZipFileScheme:
+
+    """base class for zip file schemes
+
+    subclasses should define the following:
+
+        check(), which checks the contents of the zip file.  If the contents do not appear to conform to the scheme (e.g. DICOMScheme sees a single .nii.gz), check() should return False.  If the subclass will accept the file, check() should then check the data and raise DataError if there are problems.
+
+        update_image03(image03), which updates the dictionary passed as image03
+    """
+
+    def __init__(self, data):
+        self.data = data
+        return
+
+    def update_image03(self, image03):
+        return
+
+class DICOMScheme(BaseZipFileScheme):
+
+    def __init__(self, data):
+        BaseZipFileScheme.__init__(self, data)
+        return
+
+    def check(self):
+        files = os.listdir(self.data.unpacked_dir)
+        for f in files:
+            full_path = os.path.join(self.data.unpacked_dir, f)
+            try:
+                do = dicom.read_file(full_path)
+            except:
+                return False
+        return True
+
+    def nii_gz(self, path):
+        source_file = os.path.join(self.data.unpacked_dir, 
+                                   os.listdir(self.data.unpacked_dir)[0])
+        rv = self.data.check_call(['mri_convert', 
+                                   source_file, 
+                                   path])
+        return
+
+    def update_image03(self, image03):
+        source_file = os.path.join(self.data.unpacked_dir, 
+                                   os.listdir(self.data.unpacked_dir)[0])
+        do = dicom.read_file(source_file)
+        for (field, (tag, converter)) in image03_dicom.iteritems():
+            try:
+                value = getattr(do, tag)
+                if not value:
+                    value = None
+                elif converter is not None:
+                    value = converter(value)
+                image03[field] = value
+            except AttributeError:
+                pass
+        image03['image_file_format'] = 'DICOM'
+        return
+
+class NiiGzScheme(BaseZipFileScheme):
+
+    def __init__(self, data):
+        BaseZipFileScheme.__init__(self, data)
+        return
+
+    def check(self):
+        files = os.listdir(self.data.unpacked_dir)
+        if len(files) != 1:
+            return False
+        if not files[0].endswith('.nii.gz'):
+            return False
+        rv = self.data.call(['mri_convert', '-ro', files[0]])
+        if rv:
+            raise DataError('contained data appears corrupt')
+        return True
+
+    def nii_gz(self, path):
+        source_file = os.path.join(self.data.unpacked_dir, 
+                                   os.listdir(self.data.unpacked_dir)[0])
+        shutil.copy(source_file, path)
+        return
+
+class Data(BaseData):
+
+    def __init__(self, fname, clean_flag):
+        BaseData.__init__(self, clean_flag)
+        try:
+            self.fname = fname
+            self.source = os.path.join(self.source_dir, os.path.basename(fname))
+            os.symlink(os.path.abspath(self.fname), self.source)
+        except:
+            self.clean()
+            raise
+        return
+
+class S3Data(BaseData):
+
+    def __init__(self, 
+                 url, 
+                 aws_access_key_id, 
+                 aws_secret_access_key, 
+                 clean_flag):
+        BaseData.__init__(self, clean_flag)
+        try:
+            self.url = url
+            assert url.startswith('s3://')
+            parts = url[5:].split('/', 1)
+            # s3://bucket or s3://bucket/
+            if len(parts) == 1 or not parts[1]:
+                raise GeneralError('incomplete S3 URL')
+            (bucket, path) = parts
+            cf = boto.s3.connection.OrdinaryCallingFormat()
+            conn = boto.connect_s3(aws_access_key_id, 
+                                   aws_secret_access_key, 
+                                   calling_format=cf)
+            b = conn.get_bucket(bucket)
+            k = b.get_key(path)
+            if not k:
+                raise GeneralError('%s not found' % url)
+            self.source = os.path.join(self.source_dir, os.path.basename(path))
+            k.get_contents_to_filename(self.source)
+            k.close()
+            conn.close()
+        except boto.exception.S3ResponseError, exc:
+            self.clean()
+            raise GeneralError('S3 error: %s' % exc.message)
+        except:
+            self.clean()
+            raise
+        return
+
+#############################################################################
+# functions
+#
+
+def debug(msg):
+    if not args.debug_flag:
+        return
+    for line in msg.split('\n'):
+        print 'DEBUG: %s' % line
+    return
+
+def notice(msg):
+    if not args.quiet:
+        print msg
+    return
+
+#############################################################################
+# command line parsing
+#
+
+progname = os.path.basename(sys.argv[0])
+
+parser = argparse.ArgumentParser(description=description, 
+                                 formatter_class=argparse.RawTextHelpFormatter)
+
+parser.add_argument('--volume', '-v', 
+                    metavar='<output volume>', 
+action='append', 
+                    help='An output volume.')
+parser.add_argument('--thumbnail', '-t')
+parser.add_argument('--image03', '-i')
+parser.add_argument('--format', '-f', 
+                    default='text', 
+                    help='image03 output format', 
+                    choices=('text', 'json'))
+parser.add_argument('--aws-access-key-id')
+parser.add_argument('--aws-secret-access-key')
+parser.add_argument('--debug', '-d', 
+                    default=False, 
+                    dest='debug_flag', 
+                    action='store_true')
+parser.add_argument('--dont-clean', '-D', 
+                    default=True, 
+                    dest='clean_flag', 
+                    action='store_false', 
+                    help='don\'t remove the temporary directory on exit')
+parser.add_argument('--quiet', '-q', 
+                    default=0, 
+                    action='count')
+parser.add_argument('input', 
+                    help='the input file or S3 URL.')
+
+args = parser.parse_args()
+
+#############################################################################
+# command line/input checks
+#
+
+errors = []
+
+if args.volume:
+    for fname in args.volume:
+        if os.path.exists(fname):
+            errors.append('%s exists' % fname)
+        else:
+            if not fname.endswith('.nii.gz'):
+                errors.append('unknown extension for volume %s' % fname)
+
+if args.thumbnail and os.path.exists(args.thumbnail):
+    errors.append('%s exists' % args.thumbnail)
+
+if args.image03 and args.image03 != '-' and os.path.exists(args.image03):
+    errors.append('%s exists' % args.image03)
+
+if args.input.startswith('s3://'):
+    if not args.aws_access_key_id:
+        errors.append('input is from S3 but no AWS access key ID given')
+    if not args.aws_secret_access_key:
+        errors.append('input is from S3 but no AWS secret access key given')
+
+if errors:
+    if args.quiet < 2:
+        for e in errors:
+            sys.stderr.write('%s: %s\n' % (progname, e))
+    sys.exit(1)
+
+#############################################################################
+# begin execution
+#
+
+try:
+    if args.input.startswith('s3://'):
+        data = S3Data(args.input, 
+                      args.aws_access_key_id, 
+                      args.aws_secret_access_key, 
+                      args.clean_flag)
+    else:
+        data = Data(args.input, args.clean_flag)
+    data.check()
+    if args.volume:
+        for fname in args.volume:
+            notice('creating %s...' % fname)
+            if fname.endswith('.nii.gz'):
+                data.nii_gz(fname)
+    if args.thumbnail:
+        notice('creating %s...' % args.thumbnail)
+        data.check_call(['slicer', data.nii_gz(), '-a', args.thumbnail])
+    if args.image03:
+        if args.image03 == '-':
+            fo = sys.stdout
+        else:
+            notice('writing image03 to %s...' % args.image03)
+            fo = open(args.image03, 'w')
+        try:
+            if args.format == 'text':
+                max_width = max([ len(f) for f in image03_fields ])
+                for field in image03_fields:
+                    val = data.image03[field]
+                    if val is None:
+                        str_val = ''
+                    else:
+                        str_val = str(val)
+                    fo.write('%s = %s\n' % (field.ljust(max_width), str_val))
+            else:
+                json.dump(data.image03, fo)
+                fo.write('\n')
+        finally:
+            if fo is not sys.stdout:
+                fo.close()
+except Exception, exc:
+    if isinstance(exc, DataError):
+        ev = 3
+    elif isinstance(exc, UndeterminedError):
+        ev = 4
+    else:
+        ev = 1
+    if args.quiet < 2:
+        sys.stderr.write('%s: %s\n' % (progname, str(exc)))
+    debug(traceback.format_exc())
+    sys.exit(ev)
+except KeyboardInterrupt:
+    if args.quiet < 2:
+        sys.stderr.write('%s: caught keyboard interrupt, exiting\n' % progname)
+    sys.exit(1)
+finally:
+    data.clean()
+
+sys.exit(0)
+
+# eof
