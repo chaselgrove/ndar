@@ -1,0 +1,205 @@
+#!/usr/bin/python
+
+import sys
+import os
+import getpass
+import argparse
+import cx_Oracle
+
+# FIRST structure name -> database column name
+cols = {'Left-Thalamus-Proper': 'left_thalamus_proper',
+        'Left-Caudate': 'left_caudate',
+        'Left-Putamen': 'left_putamen',
+        'Left-Pallidum': 'left_pallidum',
+        'Brain-Stem': 'brain_stem',
+        'Left-Hippocampus': 'left_hippocampus',
+        'Left-Amygdala': 'left_amygdala',
+        'CSF': 'csf',
+        'Left-Accumbens-area': 'left_accumbens_area',
+        'Right-Thalamus-Proper': 'right_thalamus_proper',
+        'Right-Caudate': 'right_caudate',
+        'Right-Putamen': 'right_putamen',
+        'Right-Pallidum': 'right_pallidum',
+        'Right-Hippocampus': 'right_hippocampus',
+        'Right-Amygdala': 'right_amygdala',
+        'Right-Accumbens-area': 'right_accumbens_area'}
+
+# database column name -> file name
+files = (['brain_stem_file', 'first-BrStem_first.vtk'], 
+         ['left_accumbens_area_file', 'first-L_Accu_first.vtk'], 
+         ['left_amygdala_file', 'first-L_Amyg_first.vtk'], 
+         ['left_caudate_file', 'first-L_Caud_first.vtk'], 
+         ['left_hippocampus_file', 'first-L_Hipp_first.vtk'], 
+         ['left_pallidum_file', 'first-L_Pall_first.vtk'], 
+         ['left_putamen_file', 'first-L_Puta_first.vtk'], 
+         ['left_thalamus_proper_file', 'first-L_Thal_first.vtk'], 
+         ['right_accumbens_area_file', 'first-R_Accu_first.vtk'], 
+         ['right_amygdala_file', 'first-R_Amyg_first.vtk'], 
+         ['right_caudate_file', 'first-R_Caud_first.vtk'], 
+         ['right_hippocampus_file', 'first-R_Hipp_first.vtk'], 
+         ['right_pallidum_file', 'first-R_Pall_first.vtk'], 
+         ['right_putamen_file', 'first-R_Puta_first.vtk'], 
+         ['right_thalamus_proper_file', 'first-R_Thal_first.vtk'])
+
+progname = os.path.basename(sys.argv[0])
+
+description = 'Store FIRST results in an NDAR database.'
+parser = argparse.ArgumentParser(description=description)
+
+parser.add_argument('--user', '-U', 
+                    required=True, 
+                    help='Database user')
+parser.add_argument('--password', '-P', 
+                    required=True, 
+                    help='Database password')
+parser.add_argument('--host', '-H', 
+                    required=True, 
+                    help='Database host')
+parser.add_argument('--service', '-s', 
+                    required=True, 
+                    help='Database service name')
+parser.add_argument('--subjectkey', '-k', 
+                    required=True, 
+                    help='Subject key')
+parser.add_argument('--interview-age', '-a', 
+                    required=True, 
+                    type=int, 
+                    help='Interview age')
+parser.add_argument('--gender', '-g', 
+                    required=True, 
+                    choices=('F', 'M'), 
+                    help='Gender')
+parser.add_argument('--dataset-id', '-d', 
+                    required=True, 
+                    type=int, 
+                    help='Dataset ID')
+parser.add_argument('--pipeline', '-p', 
+                    required=True, 
+                    choices=('NITRC', 'LONI'), 
+                    help='Pipeline method')
+parser.add_argument('first_dir', 
+                    help='Path to FIRST directory')
+parser.add_argument('first_stats_file', 
+                    help='Path to first.stats')
+parser.add_argument('--file-name', '-f', 
+                    required=True, 
+                    help='Original file name (from image03)')
+
+args = parser.parse_args()
+
+if not os.path.isdir(args.first_dir):
+    sys.stderr.write('%s: %s: not a directory\n' % (progname, args.first_dir))
+    sys.exit(1)
+
+missing_files = []
+for i in xrange(len(files)):
+    (col, fname) = files[i]
+    full_fname = os.path.join(args.first_dir, fname)
+    if not os.path.exists(full_fname):
+        missing_files.append(fname)
+        files[i][1] = None
+
+if missing_files:
+    print 'WARNING: missing files:'
+    for f in missing_files:
+        print '    %s' % f
+
+print 'reading %s...' % args.first_stats_file
+
+try:
+    fo = open(args.first_stats_file)
+except Exception, data:
+    sys.stderr.write('%s: %s\n' % (progname, str(data)))
+    sys.exit(1)
+
+vols = {}
+headers = None
+for (line_no, line) in enumerate(fo):
+    if line.startswith('# ColHeaders'):
+        headers = line.split()[2:]
+        for col in ('StructName', 'Volume_mm3'):
+            if col not in headers:
+                sys.stderr.write('%s: %s not in ColHeaders\n' % (progname, col))
+                sys.exit(1)
+    elif line.startswith('#'):
+        pass
+    else:
+        row = line.split()
+        if not headers:
+            fmt = '%s: data before ColHeaders on line %d of %s\n'
+            sys.stderr.write(fmt % (progname, line_no+1, args.first_stats_file))
+            sys.exit(1)
+        row_dict = dict(zip(headers, row))
+        try:
+            col = cols[row_dict['StructName']]
+        except KeyError:
+            continue
+        try:
+            vol = float(row_dict['Volume_mm3'])
+        except ValueError:
+            fmt = '%s: bad volume on line %d of %s\n'
+            sys.stderr.write(fmt % (progname, line_no+1, args.first_stats_file))
+            sys.exit(1)
+        vols[col] = vol
+
+missing_structures = []
+for (fs, col) in cols.iteritems():
+    if col not in vols:
+        missing_structures.append(fs)
+        vols[col] = None
+if len(missing_structures) == len(cols):
+    fmt = '%s: no structures of interest found in %s\n'
+    sys.stderr.write(fmt % (progname, args.first_stats_file))
+    sys.exit(1)
+if missing_structures:
+    print 'WARNING: not found in %s:' % args.first_stats_file
+    for s in missing_structures:
+        print '    %s' % s
+
+fo.close()
+
+print 'updating database...'
+
+dsn = cx_Oracle.makedsn(args.host, 1521, args.service)
+try:
+    db = cx_Oracle.connect(args.user, args.password, dsn)
+except Exception, data:
+    sys.stderr.write('%s: %s\n' % (progname, str(data)))
+    sys.exit(1)
+
+query_cols = ['subjectkey', 
+              'interview_age', 
+              'gender', 
+              'file_name', 
+              'dataset_id', 
+              'pipeline']
+query_cols.extend(cols.itervalues())
+query_cols.extend([ el[0] for el in files ])
+
+query = 'INSERT INTO first_structures '
+query += '(%s) ' % ', '.join(query_cols)
+query += 'VALUES '
+query += '(%s)' % ', '.join([':%s' % col for col in query_cols])
+
+query_params = dict(vols)
+query_params['subjectkey'] = args.subjectkey
+query_params['interview_age'] = args.interview_age
+query_params['gender'] = args.gender
+query_params['file_name'] = args.file_name
+query_params['dataset_id'] = args.dataset_id
+query_params['pipeline'] = args.pipeline
+
+for (col, fname) in files:
+    query_params[col] = fname
+
+c = db.cursor()
+c.execute(query, query_params)
+c.close()
+
+db.commit()
+
+db.close()
+
+print 'done'
+
+# eof
