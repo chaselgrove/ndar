@@ -517,11 +517,14 @@ try:
     data = None
     for data_class in (NIfTIGzData, DICOMData):
         try:
+            message(DEBUG, 'trying %s' % str(data_class))
             data = data_class(tempdir)
-        except TypeError:
+        except TypeError, exc:
+            message(DEBUG, 'class complains: %s' % str(exc))
             continue
     if not data:
         raise DataError('unrecognized data format')
+    message(DEBUG, 'class %s accepted the data' % str(data.__class__))
 
     if args.volume:
         for fname in args.volume:
