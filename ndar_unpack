@@ -120,6 +120,11 @@ image03_dicom = {'gender': ('PatientSex', None),
                                             convert_dicom_time),
                  'mri_echo_time_pd': ('EchoTime', convert_dicom_time)}
 
+SILENT = 0
+ERROR = 1
+NOTICE = 2
+DEBUG = 3
+
 #############################################################################
 # exceptions
 #
@@ -158,28 +163,43 @@ class GeneralError(BaseError):
 
 class BaseData:
 
-    def __init__(self, clean_flag):
-        self.clean_flag = clean_flag
-        self.tempdir = tempfile.mkdtemp()
-        debug('created temporary directory %s' % self.tempdir)
-        self.source_dir = os.path.join(self.tempdir, 'source')
-        os.mkdir(self.source_dir)
+    """base class for data handling classes
+
+    Subclasses should define:
+
+        @property image03(), which returns a dictionary containing the 
+        image03 structure
+
+        nii_gz(), which creates a .nii.gz.  If a file name is specified, 
+        the NIfTI volume should be written to that file; otherwise a 
+        temporary file should be created.  Returns the file name.
+
+    Each subclass should define __init__() such that it returns only if 
+    it is prepared to handle the data in the passed temporary directory.  
+    If the class rejects the data (e.g. a DICOM handler recieves a NIfTI 
+    file), __init__() should raise TypeError; if the class accepts the 
+    data but finds an error (e.g. a DICOM handler finds more than one 
+    series), __init__() should raise DataError.
+    """
+
+    def __init__(self, tempdir):
+        self.tempdir = tempdir
+        self.contents = []
         self.unpacked_dir = os.path.join(self.tempdir, 'unpacked')
-        os.mkdir(self.unpacked_dir)
-        self.output_dir = os.path.join(self.tempdir, 'output')
-        os.mkdir(self.output_dir)
+        for (dir, dirs, files) in os.walk(self.unpacked_dir):
+            for f in files:
+                self.contents.append(os.path.join(dir, f))
         # a serial number for process output
         self.process_index = 0
-        # how the zip file is packaged; an object whose type is a 
-        # subclass of BaseZipFileScheme
-        self.zip_scheme = None
         self._image03 = None
         return
 
-    @property
-    def image03(self):
-        if self._image03:
-            return self._image03
+    def _image03_from_nifti(self):
+        """fill as much of the image03 structure as possible from the NIfTI 
+        volume
+
+        this also initializes _image03 with the known fields
+        """
         self._image03 = {}
         for field in image03_fields:
             self._image03[field] = None
@@ -213,27 +233,15 @@ class BaseData:
                 self._image03['image_unit%d' % (i+1)] = xyz_units
             if i == 3 and t_units:
                 self._image03['image_unit4'] = t_unit
-        if self.source.endswith('.zip'):
-            self.zip_scheme.update_image03(self._image03)
         return self._image03
 
-    def clean(self):
-        if not os.path.exists(self.tempdir):
-            return
-        if self.clean_flag:
-            debug('removing temporary directory %s' % self.tempdir)
-            shutil.rmtree(self.tempdir)
-        else:
-            notice('leaving temporary directory %s' % self.tempdir)
-        return
-
     def call(self, args):
-        debug('running (%d) %s' % (self.process_index, ' '.join(args)))
+        message(DEBUG, 'running (%d) %s' % (self.process_index, ' '.join(args)))
         stdout_f = None
         stderr_f = None
-        stdout_fname = os.path.join(self.output_dir, 
+        stdout_fname = os.path.join(os.path.join(self.tempdir, 'output'), 
                                     '%d.out' % self.process_index)
-        stderr_fname = os.path.join(self.output_dir, 
+        stderr_fname = os.path.join(os.path.join(self.tempdir, 'output'), 
                                     '%d.err' % self.process_index)
         try:
             stdout_f = open(stdout_fname, 'w')
@@ -241,11 +249,12 @@ class BaseData:
             self.process_index += 1
             rv = subprocess.call(args, stdout=stdout_f, stderr=stderr_f)
         except OSError, exc:
+            # ENOENT if the program couldn't be found
             if exc.errno == errno.ENOENT:
-                message = 'couldn\'t find %s' % args[0]
+                msg = 'couldn\'t find %s' % args[0]
             else:
-                message = str(exc)
-            raise UndeterminedError(message)
+                msg = str(exc)
+            raise UndeterminedError(msg)
         finally:
             if stdout_f:
                 stdout_f.close()
@@ -265,126 +274,65 @@ class BaseData:
             raise GeneralError('error running %s' % args[0])
         return
 
-    def check(self):
-        if self.source.endswith('.nii.gz'):
-            self._check_nii_gz()
-        elif self.source.endswith('.nii'):
-            self._check_nii()
-        elif self.source.endswith('.zip'):
-            self._check_zip()
-        elif self.source.endswith('.nrrd'):
-            raise UndeterminedError('NRRD not handled')
-        elif self.source.endswith('.mnc'):
-            raise UndeterminedError('MINC not handled')
-        else:
-            raise DataError('bad extension on %s' % \
-                            os.path.basename(self.source))
+class NIfTIGzData(BaseData):
+
+    def __init__(self, tempdir):
+        BaseData.__init__(self, tempdir)
+        if not self.contents:
+            raise TypeError('no files')
+        if len(self.contents) != 1:
+            raise TypeError('too many files')
+        if not self.contents[0].endswith('.nii.gz'):
+            raise TypeError('bad extension')
+        rv = self.call(['mri_convert', '-ro', self.contents[0]])
+        if rv:
+            raise DataError('could not read .nii.gz')
         return
+
+    @property
+    def image03(self):
+        if self._image03:
+            return self._image03
+        self._image03_from_nifti()
+        image03['image_file_format'] = 'NIfTI'
+        return self._image03
 
     def nii_gz(self, path=None):
-        # if no destination is specified, create one of our own (or return 
-        # the original volume)
         if not path:
-            if self.source.endswith('.nii.gz'):
-                return self.source
-            path = os.path.join(self.tempdir, 'volume.nii.gz')
-            if os.path.exists(path):
-                return path
-        if self.source.endswith('.nii.gz'):
-            shutil.copy(self.source, path)
-        elif self.source.endswith('.nii'):
-            self.check_call(['mri_convert', self.source, path])
-        elif self.source.endswith('.zip'):
-            self.zip_scheme.nii_gz(path)
-        else:
-            raise NotImplementedError('can\'t create .nii.gz from source')
+            return self.contents[0]
+        shutil.copy(self.contents[0], path)
         return path
 
-    def _check_nii_gz(self):
-        debug('checking .nii.gz')
-        rv = self.call(['mri_convert', '-ro', self.source])
-        if rv:
-            raise DataError('data appears corrupt')
-        return
+class DICOMData(BaseData):
 
-    def _check_nii(self):
-        debug('checking .nii')
-        rv = self.call(['mri_convert', '-ro', self.source])
-        if rv:
-            raise DataError('data appears corrupt')
-        return
-
-    def _check_zip(self):
-        debug('checking zip file')
-        try:
-            zf = zipfile.ZipFile(self.source)
-            zf.extractall(self.unpacked_dir)
-            zf.close()
-        except zipfile.BadZipfile:
-            raise DataError('error in zip file')
-        self._inspect_zip()
-        return
-
-    def _inspect_zip(self):
-        scheme = DICOMScheme(self)
-        if scheme.check():
-            debug('zip file scheme is DICOM')
-            self.zip_scheme = scheme
-            return
-        scheme = NiiGzScheme(self)
-        if scheme.check():
-            debug('zip file scheme is nii.gz')
-            self.zip_scheme = scheme
-            return
-        raise DataError('contents of zip file not understood')
-        return
-
-class BaseZipFileScheme:
-
-    """base class for zip file schemes
-
-    subclasses should define the following:
-
-        check(), which checks the contents of the zip file.  If the contents do not appear to conform to the scheme (e.g. DICOMScheme sees a single .nii.gz), check() should return False.  If the subclass will accept the file, check() should then check the data and raise DataError if there are problems.
-
-        update_image03(image03), which updates the dictionary passed as image03
-    """
-
-    def __init__(self, data):
-        self.data = data
-        return
-
-    def update_image03(self, image03):
-        return
-
-class DICOMScheme(BaseZipFileScheme):
-
-    def __init__(self, data):
-        BaseZipFileScheme.__init__(self, data)
-        return
-
-    def check(self):
-        files = os.listdir(self.data.unpacked_dir)
-        for f in files:
-            full_path = os.path.join(self.data.unpacked_dir, f)
+    def __init__(self, tempdir):
+        BaseData.__init__(self, tempdir)
+        if not self.contents:
+            raise TypeError('no files')
+        series_uids = []
+        for f in self.contents:
             try:
-                do = dicom.read_file(full_path)
+                do = dicom.read_file(f)
             except:
-                return False
-        return True
-
-    def nii_gz(self, path):
-        source_file = os.path.join(self.data.unpacked_dir, 
-                                   os.listdir(self.data.unpacked_dir)[0])
-        rv = self.data.check_call(['mri_convert', 
-                                   source_file, 
-                                   path])
+                raise TypeError('non-DICOM found')
+            try:
+                uid = str(do.SeriesInstanceUID)
+            except AttributeError:
+                raise TypeError('DICOM file without Series Instance UID')
+            if not uid:
+                raise TypeError('DICOM file with empty Series Instance UID')
+            if uid not in series_uids:
+                series_uids.append(uid)
+        if len(series_uids) > 1:
+            raise TypeError('multiple series found')
         return
 
-    def update_image03(self, image03):
-        source_file = os.path.join(self.data.unpacked_dir, 
-                                   os.listdir(self.data.unpacked_dir)[0])
-        do = dicom.read_file(source_file)
+    @property
+    def image03(self):
+        if self._image03:
+            return self._image03
+        self._image03_from_nifti()
+        do = dicom.read_file(self.contents[0])
         for (field, (tag, converter)) in image03_dicom.iteritems():
             try:
                 value = getattr(do, tag)
@@ -392,98 +340,35 @@ class DICOMScheme(BaseZipFileScheme):
                     value = None
                 elif converter is not None:
                     value = converter(value)
-                image03[field] = value
+                self._image03[field] = value
             except AttributeError:
                 pass
-        image03['image_file_format'] = 'DICOM'
-        return
+        self._image03['image_file_format'] = 'DICOM'
+        return self._image03
 
-class NiiGzScheme(BaseZipFileScheme):
-
-    def __init__(self, data):
-        BaseZipFileScheme.__init__(self, data)
-        return
-
-    def check(self):
-        files = os.listdir(self.data.unpacked_dir)
-        if len(files) != 1:
-            return False
-        if not files[0].endswith('.nii.gz'):
-            return False
-        rv = self.data.call(['mri_convert', '-ro', files[0]])
-        if rv:
-            raise DataError('contained data appears corrupt')
-        return True
-
-    def nii_gz(self, path):
-        source_file = os.path.join(self.data.unpacked_dir, 
-                                   os.listdir(self.data.unpacked_dir)[0])
-        shutil.copy(source_file, path)
-        return
-
-class Data(BaseData):
-
-    def __init__(self, fname, clean_flag):
-        BaseData.__init__(self, clean_flag)
-        try:
-            self.fname = fname
-            self.source = os.path.join(self.source_dir, os.path.basename(fname))
-            os.symlink(os.path.abspath(self.fname), self.source)
-        except:
-            self.clean()
-            raise
-        return
-
-class S3Data(BaseData):
-
-    def __init__(self, 
-                 url, 
-                 aws_access_key_id, 
-                 aws_secret_access_key, 
-                 clean_flag):
-        BaseData.__init__(self, clean_flag)
-        try:
-            self.url = url
-            assert url.startswith('s3://')
-            parts = url[5:].split('/', 1)
-            # s3://bucket or s3://bucket/
-            if len(parts) == 1 or not parts[1]:
-                raise GeneralError('incomplete S3 URL')
-            (bucket, path) = parts
-            cf = boto.s3.connection.OrdinaryCallingFormat()
-            conn = boto.connect_s3(aws_access_key_id, 
-                                   aws_secret_access_key, 
-                                   calling_format=cf)
-            b = conn.get_bucket(bucket)
-            k = b.get_key(path)
-            if not k:
-                raise GeneralError('%s not found' % url)
-            self.source = os.path.join(self.source_dir, os.path.basename(path))
-            k.get_contents_to_filename(self.source)
-            k.close()
-            conn.close()
-        except boto.exception.S3ResponseError, exc:
-            self.clean()
-            raise GeneralError('S3 error: %s' % exc.message)
-        except:
-            self.clean()
-            raise
-        return
+    def nii_gz(self, path=None):
+        if not path:
+            path = os.path.join(self.tempdir, 'volume.nii.gz')
+        self.check_call(['mri_convert', self.contents[0], path])
+        return path
 
 #############################################################################
 # functions
 #
 
-def debug(msg):
-    if not args.debug_flag:
+def message(level, msg):
+    fo = sys.stdout
+    if level > output_level:
         return
+    if level == DEBUG:
+        prefix = 'DEBUG: '
+    elif level == ERROR:
+        fo = sys.stderr
+        prefix = '%s: ' % progname
+    else:
+        prefix = ''
     for line in msg.split('\n'):
-        print 'DEBUG: %s' % line
-    return
-
-def notice(msg):
-    if not args.quiet:
-        print msg
+        fo.write('%s%s\n' % (prefix, line))
     return
 
 #############################################################################
@@ -510,7 +395,8 @@ parser.add_argument('--aws-secret-access-key')
 parser.add_argument('--debug', '-d', 
                     default=False, 
                     dest='debug_flag', 
-                    action='store_true')
+                    action='store_true', 
+                    help='debug flag; overrides -q')
 parser.add_argument('--dont-clean', '-D', 
                     default=True, 
                     dest='clean_flag', 
@@ -518,15 +404,25 @@ parser.add_argument('--dont-clean', '-D',
                     help='don\'t remove the temporary directory on exit')
 parser.add_argument('--quiet', '-q', 
                     default=0, 
-                    action='count')
+                    action='count', 
+                    help='quiet flag; set twice for no output')
 parser.add_argument('input', 
-                    help='the input file or S3 URL.')
+                    help='the input file or S3 URL')
 
 args = parser.parse_args()
 
 #############################################################################
 # command line/input checks
 #
+
+output_level = NOTICE
+if args.debug_flag:
+    output_level = DEBUG
+elif args.quiet:
+    if args.quiet == 1:
+        output_level = ERROR
+    else:
+        output_level = SILENT
 
 errors = []
 
@@ -551,9 +447,8 @@ if args.input.startswith('s3://'):
         errors.append('input is from S3 but no AWS secret access key given')
 
 if errors:
-    if args.quiet < 2:
-        for e in errors:
-            sys.stderr.write('%s: %s\n' % (progname, e))
+    for e in errors:
+        message(ERROR, e)
     sys.exit(1)
 
 #############################################################################
@@ -561,27 +456,88 @@ if errors:
 #
 
 try:
+
+    tempdir = tempfile.mkdtemp()
+    source_dir = os.path.join(tempdir, 'source')
+    unpacked_dir = os.path.join(tempdir, 'unpacked')
+    output_dir = os.path.join(tempdir, 'output')
+    os.mkdir(source_dir)
+    os.mkdir(unpacked_dir)
+    os.mkdir(output_dir)
+
+    source_basename = os.path.basename(args.input)
+    temp_source = os.path.join(source_dir, source_basename)
+
     if args.input.startswith('s3://'):
-        data = S3Data(args.input, 
-                      args.aws_access_key_id, 
-                      args.aws_secret_access_key, 
-                      args.clean_flag)
+        try:
+            message(NOTICE, 'downloading data...')
+            parts = args.input[5:].split('/', 1)
+            # s3://bucket or s3://bucket/
+            if len(parts) == 1 or not parts[1]:
+                raise GeneralError('incomplete S3 URL')
+            (bucket, path) = parts
+            cf = boto.s3.connection.OrdinaryCallingFormat()
+            conn = boto.connect_s3(args.aws_access_key_id, 
+                                   args.aws_secret_access_key, 
+                                   calling_format=cf)
+            message(DEBUG, 'getting S3 bucket %s' % bucket)
+            b = conn.get_bucket(bucket)
+            message(DEBUG, 'looking for S3 object %s' % path)
+            k = b.get_key(path)
+            if not k:
+                raise GeneralError('%s not found' % url)
+            message(DEBUG, 'downloading S3 object to %s' % temp_source)
+            k.get_contents_to_filename(temp_source)
+            k.close()
+            conn.close()
+        except boto.exception.S3ResponseError, exc:
+            self.clean()
+            raise GeneralError('S3 error: %s' % exc.message)
     else:
-        data = Data(args.input, args.clean_flag)
-    data.check()
+        message(DEBUG, 'linking source to %s' % temp_source)
+        os.symlink(os.path.abspath(args.input), temp_source)
+
+    if args.input.endswith('.zip'):
+        message(NOTICE, 'unpacking ZIP file...')
+        try:
+            zf = zipfile.ZipFile(temp_source)
+            zf.extractall(unpacked_dir)
+            zf.close()
+        except zipfile.BadZipfile:
+            raise DataError('error in zip file')
+    else:
+        message(DEBUG, 'linking source to unpacked/')
+        os.symlink(temp_source, os.path.join(unpacked_dir, source_basename))
+
+    # attempt to find a handler for the data
+    # each class constructor will raise TypeError if it won't handle the data 
+    # and DataError if it finds an error in the data, so hidden in this loop 
+    # is also data checking
+    message(NOTICE, 'inspecting data...')
+    data = None
+    for data_class in (NIfTIGzData, DICOMData):
+        try:
+            data = data_class(tempdir)
+        except TypeError:
+            continue
+    if not data:
+        raise DataError('unrecognized data format')
+
     if args.volume:
         for fname in args.volume:
-            notice('creating %s...' % fname)
+            message(NOTICE, 'creating %s...' % fname)
             if fname.endswith('.nii.gz'):
                 data.nii_gz(fname)
+
     if args.thumbnail:
-        notice('creating %s...' % args.thumbnail)
+        message(NOTICE, 'creating %s...' % args.thumbnail)
         data.check_call(['slicer', data.nii_gz(), '-a', args.thumbnail])
+
     if args.image03:
         if args.image03 == '-':
             fo = sys.stdout
         else:
-            notice('writing image03 to %s...' % args.image03)
+            message(NOTICE, 'writing image03 to %s...' % args.image03)
             fo = open(args.image03, 'w')
         try:
             if args.format == 'text':
@@ -599,23 +555,38 @@ try:
         finally:
             if fo is not sys.stdout:
                 fo.close()
+
+    if not args.volume and not args.thumbnail and not args.image03:
+        message(NOTICE, 'data okay')
+
 except Exception, exc:
+
     if isinstance(exc, DataError):
         ev = 3
     elif isinstance(exc, UndeterminedError):
         ev = 4
     else:
         ev = 1
-    if args.quiet < 2:
-        sys.stderr.write('%s: %s\n' % (progname, str(exc)))
-    debug(traceback.format_exc())
+
+    if args.debug_flag:
+        message(DEBUG, traceback.format_exc(exc))
+    else:
+        message(ERROR, str(exc))
+
     sys.exit(ev)
+
 except KeyboardInterrupt:
-    if args.quiet < 2:
-        sys.stderr.write('%s: caught keyboard interrupt, exiting\n' % progname)
+
+    message(ERROR, 'caught keyboard interrupt, exiting')
     sys.exit(1)
+
 finally:
-    data.clean()
+
+    if args.clean_flag:
+        message(DEBUG, 'removing temporary directory %s' % tempdir)
+        shutil.rmtree(tempdir)
+    else:
+        message(NOTICE, 'leaving temporary directory %s' % tempdir)
 
 sys.exit(0)
 
