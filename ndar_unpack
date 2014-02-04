@@ -294,7 +294,7 @@ class NIfTIGzData(BaseData):
         if self._image03:
             return self._image03
         self._image03_from_nifti()
-        image03['image_file_format'] = 'NIfTI'
+        self._image03['image_file_format'] = 'NIfTI'
         return self._image03
 
     def nii_gz(self, path=None):
