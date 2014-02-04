@@ -318,13 +318,13 @@ class DICOMData(BaseData):
             try:
                 uid = str(do.SeriesInstanceUID)
             except AttributeError:
-                raise TypeError('DICOM file without Series Instance UID')
+                raise DataErro('DICOM file without Series Instance UID')
             if not uid:
-                raise TypeError('DICOM file with empty Series Instance UID')
+                raise DataError('DICOM file with empty Series Instance UID')
             if uid not in series_uids:
                 series_uids.append(uid)
         if len(series_uids) > 1:
-            raise TypeError('multiple series found')
+            raise DataError('multiple series found')
         return
 
     @property
