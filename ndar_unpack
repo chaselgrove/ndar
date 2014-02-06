@@ -386,6 +386,7 @@ action='append',
                     help='An output volume.')
 parser.add_argument('--thumbnail', '-t')
 parser.add_argument('--image03', '-i')
+parser.add_argument('--contents', '-c')
 parser.add_argument('--format', '-f', 
                     default='text', 
                     help='image03 output format', 
@@ -439,6 +440,9 @@ if args.thumbnail and os.path.exists(args.thumbnail):
 
 if args.image03 and args.image03 != '-' and os.path.exists(args.image03):
     errors.append('%s exists' % args.image03)
+
+if args.contents and args.contents != '-' and os.path.exists(args.contents):
+    errors.append('%s exists' % args.contents)
 
 if args.input.startswith('s3://'):
     if not args.aws_access_key_id:
@@ -559,7 +563,34 @@ try:
             if fo is not sys.stdout:
                 fo.close()
 
-    if not args.volume and not args.thumbnail and not args.image03:
+    if args.contents:
+        if args.contents == '-':
+            fo = sys.stdout
+        else:
+            message(NOTICE, 'writing contents to %s...' % args.contents)
+            fo = open(args.contents, 'w')
+        try:
+            # traverse the directory tree under the unpacked directory
+            # relpath is the path relative to this directory (so relative 
+            # to the root of the zip file)
+            # normpath will remove the leading './' that will appear in 
+            # top-level entries
+            for (dirpath, dirnames, filenames) in os.walk(unpacked_dir):
+                relpath = os.path.relpath(unpacked_dir, dirpath)
+                for dname in dirnames:
+                    path = os.path.normpath(os.path.join(relpath, dname))
+                    fo.write('%s/\n' % path)
+                for fname in filenames:
+                    path = os.path.normpath(os.path.join(relpath, fname))
+                    fo.write('%s\n' % path)
+        finally:
+            if fo is not sys.stdout:
+                fo.close()
+
+    if not args.volume \
+       and not args.thumbnail \
+       and not args.image03 \
+       and not args.contents:
         message(NOTICE, 'data okay')
 
 except Exception, exc:
