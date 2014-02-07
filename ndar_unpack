@@ -54,7 +54,7 @@ exit values are:
     ndar_unpack hasn't been developed to the point of supporting it.  
     Returns 4.
 
-AWS keys may be specified in the environment as AWS_ACCESS_KEY_ID and 
+AWS keys can be specified in the environment as AWS_ACCESS_KEY_ID and 
 AWS_SECRET_ACCESS_KEY.
 
 Written by Christian Haselgrove, 2014.
@@ -542,7 +542,9 @@ try:
 
     if args.thumbnail:
         message(NOTICE, 'creating %s...' % args.thumbnail)
-        data.check_call(['slicer', data.nii_gz(), '-a', args.thumbnail])
+        vol_r = os.path.join(tempdir, 'vol_r.nii.gz')
+        data.check_call(['fslreorient2std', data.nii_gz(), vol_r])
+        data.check_call(['slicer', vol_r, '-a', args.thumbnail])
 
     if args.image03:
         if args.image03 == '-':
