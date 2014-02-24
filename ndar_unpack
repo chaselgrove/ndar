@@ -494,7 +494,7 @@ try:
             message(DEBUG, 'looking for S3 object %s' % path)
             k = b.get_key(path)
             if not k:
-                raise GeneralError('%s not found' % url)
+                raise GeneralError('%s not found' % args.input)
             message(DEBUG, 'downloading S3 object to %s' % temp_source)
             k.get_contents_to_filename(temp_source)
             k.close()
