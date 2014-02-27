@@ -43,42 +43,42 @@ progname = os.path.basename(sys.argv[0])
 description = 'Store FreeSurfer results in an NDAR database.'
 parser = argparse.ArgumentParser(description=description)
 
-parser.add_argument('--user', '-U', 
+parser.add_argument('--user', 
                     required=True, 
                     help='Database user')
-parser.add_argument('--password', '-P', 
+parser.add_argument('--password', 
                     required=True, 
                     help='Database password')
-parser.add_argument('--host', '-H', 
+parser.add_argument('--host', 
                     required=True, 
                     help='Database host')
-parser.add_argument('--service', '-s', 
+parser.add_argument('--service', 
                     required=True, 
                     help='Database service name')
-parser.add_argument('--subjectkey', '-k', 
+parser.add_argument('--subjectkey', 
                     required=True, 
                     help='Subject key')
-parser.add_argument('--interview-age', '-a', 
+parser.add_argument('--interview-age', 
                     required=True, 
                     type=int, 
                     help='Interview age')
-parser.add_argument('--gender', '-g', 
+parser.add_argument('--gender', 
                     required=True, 
                     choices=('F', 'M'), 
                     help='Gender')
-parser.add_argument('--dataset-id', '-d', 
+parser.add_argument('--dataset-id', 
                     required=True, 
                     type=int, 
                     help='Dataset ID')
-parser.add_argument('--pipeline', '-p', 
+parser.add_argument('--pipeline', 
                     required=True, 
                     choices=('NITRC', 'LONI'), 
                     help='Pipeline method')
-parser.add_argument('aseg_stats_file', 
-                    help='Path to aseg.stats')
-parser.add_argument('--file-name', '-f', 
+parser.add_argument('--file-name', 
                     required=True, 
                     help='Original file name (from image03)')
+parser.add_argument('aseg_stats_file', 
+                    help='Path to aseg.stats')
 
 args = parser.parse_args()
 
