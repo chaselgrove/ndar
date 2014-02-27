@@ -1,0 +1,101 @@
+#$ -V
+#$ -S /bin/bash
+#$ -o $HOME/logs/fs.$JOB_ID.stdout
+#$ -e $HOME/logs/fs.$JOB_ID.stderr
+
+# set this to copy sample data rather than actually running the analysis
+bogus_run=
+
+clean_up()
+{
+
+    echo 'cleaning up'
+
+    cd $SUBJECTS_DIR
+
+    if [ -f ${subjectkey}.nii.gz ] ; then rm ${subjectkey}.nii.gz ; fi
+    if [ -f ${subjectkey}.zip ] ; then rm ${subjectkey}.zip ; fi
+    if [ -d ${subjectkey} ] ; then rm -r ${subjectkey} ; fi
+
+    return 0
+
+} # end clean_up()
+
+if [ -z $DB_PW ]
+then
+    echo "DB_PW not set" >&2
+    exit 1
+fi
+
+trap clean_up EXIT
+
+set -e
+
+subjectkey=$1
+interview_age=$2
+gender=$3
+dataset_id=$4
+file_name=$5
+
+cat << EOF
+
+starting launch_recon_all
+
+`date`
+
+subjectkey = $subjectkey
+interview_age = $interview_age
+gender = $gender
+dataset_id = $dataset_id
+file_name = $file_name
+
+instance ID = `GET http://169.254.169.254/latest/meta-data/instance-id`
+instance type = `GET http://169.254.169.254/latest/meta-data/instance-type`
+
+EOF
+
+FREESURFER_HOME=/ndar/freesurfer
+. $FREESURFER_HOME/FreeSurferEnv.sh
+SUBJECTS_DIR=/scratch/ubuntu/subjects
+
+if [ ! -d $SUBJECTS_DIR ] ; then mkdir $SUBJECTS_DIR ; fi
+
+ndar_unpack -v $SUBJECTS_DIR/${subjectkey}.nii.gz $file_name
+
+if [ $bogus_run ]
+then
+    cp -rv $FREESURFER_HOME/subjects/bert $SUBJECTS_DIR/$subjectkey
+else
+    /usr/bin/time -v recon_all \
+                  -all \
+                  -subjid $subjectkey \
+                  -i $SUBJECTS_DIR/${subjectkey}.nii.gz
+fi
+
+store_fs_results --user nitrc \
+                 --password $DB_PW \
+                 --host mindar.cqahbwk3l1mb.us-east-1.rds.amazonaws.com \
+                 --service MINDAR \
+                 --subjectkey $subjectkey \
+                 --interview-age $interview_age \
+                 --gender $gender \
+                 --dataset-id $dataset_id \
+                 --pipeline NITRC \
+                 --file-name bogus$file_name \
+                 $SUBJECTS_DIR/$subjectkey/stats/aseg.stats
+
+cd $SUBJECTS_DIR
+
+zip -r ${subjectkey}.zip $subjectkey
+aws s3 cp ${subjectkey}.zip s3://NITRC_data/FreeSurfer/bogus${subjectkey}.zip
+
+clean_up
+trap '' EXIT
+
+echo
+echo done `date`
+echo
+
+exit 0
+
+# eof
