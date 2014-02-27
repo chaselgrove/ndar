@@ -1,0 +1,118 @@
+#$ -V
+#$ -S /bin/bash
+#$ -o $HOME/logs/first.$JOB_ID.stdout
+#$ -e $HOME/logs/first.$JOB_ID.stderr
+
+# set this to copy sample data rather than actually running the analysis
+bogus_run=
+
+clean_up()
+{
+
+    echo 'cleaning up'
+
+    if [ -z $working_dir ] ; then return 0 ; fi
+
+    if [ ! -d $working_dir ] ; then return 0 ; fi
+
+    rm -r $working_dir
+
+    return 0
+
+} # end clean_up()
+
+if [ -z $DB_PW ]
+then
+    echo "DB_PW not set" >&2
+    exit 1
+fi
+
+trap clean_up EXIT
+
+set -e
+
+subjectkey=$1
+interview_age=$2
+gender=$3
+dataset_id=$4
+file_name=$5
+
+cat << EOF
+
+starting launch_first_all
+
+`date`
+
+subjectkey = $subjectkey
+interview_age = $interview_age
+gender = $gender
+dataset_id = $dataset_id
+file_name = $file_name
+
+instance ID = `GET http://169.254.169.254/latest/meta-data/instance-id`
+instance type = `GET http://169.254.169.254/latest/meta-data/instance-type`
+
+EOF
+
+FREESURFER_HOME=/ndar/freesurfer
+. $FREESURFER_HOME/FreeSurferEnv.sh
+
+export FSLDIR=/ndar/fsl
+. $FSLDIR/etc/fslconf/fsl.sh
+PATH=$FSLDIR/bin:$PATH
+
+working_dir=/scratch/ubuntu/$subjectkey
+mkdir $working_dir
+
+cd $working_dir
+
+if [ $bogus_run ]
+then
+
+    cp -rv /ndar/test_data/NDARYN002ECR $subjectkey
+    cd $subjectkey
+
+else
+
+    mkdir $subjectkey
+    cd $subjectkey
+
+    ndar_unpack -v anat.nii.gz $file_name
+
+    echo 'starting first'
+    /usr/bin/time -v run_first_all -i anat -o first
+
+    echo 'starting mri_segstats'
+    mri_segstats --sum first.stats \
+                 --ctab $FREESURFER_HOME/FreeSurferColorLUT.txt \
+                 --seg first_all_fast_firstseg.nii.gz
+
+fi
+
+store_first_results --user nitrc \
+                    --password $DB_PW \
+                    --host mindar.cqahbwk3l1mb.us-east-1.rds.amazonaws.com \
+                    --service MINDAR \
+                    --subjectkey $subjectkey \
+                    --interview-age $interview_age \
+                    --gender $gender \
+                    --dataset-id $dataset_id \
+                    --pipeline NITRC \
+                    --file-name bogus$file_name \
+                    . first.stats
+
+cd ..
+
+zip -r ${subjectkey}.zip $subjectkey
+aws s3 cp ${subjectkey}.zip s3://NITRC_data/FIRST/bogus${subjectkey}.zip
+
+clean_up
+trap '' EXIT
+
+echo
+echo done `date`
+echo
+
+exit 0
+
+# eof
