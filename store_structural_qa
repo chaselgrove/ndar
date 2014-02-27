@@ -1,0 +1,151 @@
+#!/usr/bin/python
+
+import sys
+import os
+import getpass
+import argparse
+import cx_Oracle
+
+classes = ('external', 'brain', 'csf', 'gm', 'wm', 'snr') 
+
+progname = os.path.basename(sys.argv[0])
+
+description = 'Store structural QA results in an NDAR database.'
+parser = argparse.ArgumentParser(description=description)
+
+parser.add_argument('--user', 
+                    required=True, 
+                    help='Database user')
+parser.add_argument('--password', 
+                    required=True, 
+                    help='Database password')
+parser.add_argument('--host', 
+                    required=True, 
+                    help='Database host')
+parser.add_argument('--service', 
+                    required=True, 
+                    help='Database service name')
+parser.add_argument('--subjectkey', 
+                    required=True, 
+                    help='Subject key')
+parser.add_argument('--experiment-id', 
+                    required=True, 
+                    help='Experiment ID')
+parser.add_argument('--interview-age', 
+                    required=True, 
+                    type=int, 
+                    help='Interview age')
+parser.add_argument('--interview-date', 
+                    required=True, 
+                    help='Interview date')
+parser.add_argument('--gender', 
+                    required=True, 
+                    choices=('F', 'M'), 
+                    help='Gender')
+parser.add_argument('--dataset-id', 
+                    required=True, 
+                    type=int, 
+                    help='Dataset ID')
+parser.add_argument('--src-subject-id', 
+                    required=True, 
+                    help='Source subject ID')
+parser.add_argument('collection-id', 
+                    required=True, 
+                    type=int, 
+                    'Collection ID')
+parser.add_argument('collection-title', 
+                    required=True, 
+                    'Collection title')
+parser.add_argument('--file-name', 
+                    required=True, 
+                    help='Original file name (from image03)')
+parser.add_argument('qa_dir', 
+                    help='Path to QA directory')
+
+args = parser.parse_args()
+
+if not os.path.isdir(args.qa_dir):
+    sys.stderr.write('%s: %s: not a directory\n' % (progname, args.first_dir))
+    sys.exit(1)
+
+# vals[tissue class] = values
+vals = {}
+for c in classes:
+    fname = os.path.join(args.qa_dir, '%s.stats')
+    print 'reading %s...' % fname
+    try:
+        fo = open(fname)
+    except IOError, data:
+        sys.stderr.write('%s: %s\n' % (progname, str(data)))
+        sys.exit(1)
+    str_vals = fo.readline().split()
+    fo.close()
+    vals[c] = {'min': float(str_vals[0]), 
+               'max': float(str_vals[1]), 
+               'robust_min': float(str_vals[2]), 
+               'robust_max': float(str_vals[3]), 
+               'mean': float(str_vals[4]), 
+               'std': float(str_vals[5]), 
+               'voxels': int(str_vals[6]), 
+               'volume': float(str_vals[7])}
+
+try:
+    snr = vals['brain']['mean'] / vals['externals']['std']
+except ZeroDivisionError:
+    snr = None
+
+print 'updating database...'
+
+dsn = cx_Oracle.makedsn(args.host, 1521, args.service)
+try:
+    db = cx_Oracle.connect(args.user, args.password, dsn)
+except Exception, data:
+    sys.stderr.write('%s: %s\n' % (progname, str(data)))
+    sys.exit(1)
+
+query_cols = ['dataset_id', 
+              'subjectkey', 
+              'src_subject_id', 
+              'interview_date', 
+              'interview_age', 
+              'gender', 
+              'experiment_id', 
+              'file_source', 
+              'collection_id', 
+              'collection_title', 
+              'snr']
+
+query_params = {'dataset_id': args.dataset_id, 
+                'subjectkey': args.subjectkey, 
+                'src_subject_id': args.src_subject_id, 
+                'interview_date': args.interview_date, 
+                'interview_age': args.interview_age, 
+                'gender': args.gender, 
+                'experiment_id': args.experiment_id, 
+                'file_source': args.file_name, 
+                'collection_id': args.collection_id, 
+                'collection_title': args.collection_title, 
+                'snr': snr}
+
+for c in classes:
+    for val_type in vals[c]:
+        col = '%s_%s' % (c, val_type)
+        query_cols.append(col)
+        query_params[col] = vals[c][val_type]
+
+query = 'INSERT INTO imaging_qa01'
+query += '(%s) ' % ', '.join(query_cols)
+query += 'VALUES '
+query += '(%s)' % ', '.join([':%s' % col for col in query_cols])
+
+c = db.cursor()
+c.execute(query, query_params)
+c.close()
+
+db.commit()
+
+db.close()
+
+print 'done'
+
+# eof
