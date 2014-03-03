@@ -6,6 +6,14 @@
 # set this to copy sample data rather than actually running the analysis
 bogus_run=
 
+# prefix for database rows for easy identification and removal
+if [ $bogus_run ]
+then
+    bogus_prefix=bogus
+else
+    bogus_prefix=
+fi
+
 clean_up()
 {
 
@@ -76,12 +84,12 @@ store_fs_results --user nitrc \
                  --password $DB_PW \
                  --host mindar.cqahbwk3l1mb.us-east-1.rds.amazonaws.com \
                  --service MINDAR \
-                 --subjectkey $subjectkey \
+                 --subjectkey ${bogus_prefix}${subjectkey} \
                  --interview-age $interview_age \
                  --gender $gender \
                  --dataset-id $dataset_id \
                  --pipeline NITRC \
-                 --file-name bogus$file_name \
+                 --file-name ${bogus_prefix}${file_name} \
                  $SUBJECTS_DIR/$subjectkey/stats/aseg.stats
 
 cd $SUBJECTS_DIR
