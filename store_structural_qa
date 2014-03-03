@@ -49,13 +49,13 @@ parser.add_argument('--dataset-id',
 parser.add_argument('--src-subject-id', 
                     required=True, 
                     help='Source subject ID')
-parser.add_argument('collection-id', 
+parser.add_argument('--collection-id', 
                     required=True, 
                     type=int, 
-                    'Collection ID')
-parser.add_argument('collection-title', 
+                    help='Collection ID')
+parser.add_argument('--collection-title', 
                     required=True, 
-                    'Collection title')
+                    help='Collection title')
 parser.add_argument('--file-name', 
                     required=True, 
                     help='Original file name (from image03)')
