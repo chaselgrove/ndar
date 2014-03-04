@@ -424,7 +424,7 @@ class DICOMData(BaseData):
             try:
                 uid = str(do.SeriesInstanceUID)
             except AttributeError:
-                raise DataErro('DICOM file without Series Instance UID')
+                raise DataError('DICOM file without Series Instance UID')
             if not uid:
                 raise DataError('DICOM file with empty Series Instance UID')
             if uid not in series_uids:
