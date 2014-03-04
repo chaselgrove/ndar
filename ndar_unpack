@@ -48,12 +48,6 @@ exit values are:
     Bad data.  The data is bad.  Maybe it's empty; maybe it's in an 
     unsupported format.  Returns 3.
 
-    Undetermined outcome: ndar_unpack failed to run as expected, but not 
-    in a way that indicates permanent failure.  This is the case if a 
-    helper program doesn't exist or if the data looks okay, but 
-    ndar_unpack hasn't been developed to the point of supporting it.  
-    Returns 4.
-
 AWS keys can be specified in the environment as AWS_ACCESS_KEY_ID and 
 AWS_SECRET_ACCESS_KEY.
 
@@ -153,13 +147,6 @@ class DataError(BaseError):
 
     def __str__(self):
         return 'bad data: %s' % self.error
-
-class UndeterminedError(BaseError):
-
-    """undetermined error"""
-
-    def __str__(self):
-        return 'undetermined error: %s' % self.error
 
 class GeneralError(BaseError):
 
@@ -262,18 +249,18 @@ class BaseData:
                 msg = 'couldn\'t find %s' % args[0]
             else:
                 msg = str(exc)
-            raise UndeterminedError(msg)
+            raise GeneralError(msg)
         finally:
             if stdout_f:
                 stdout_f.close()
             if stderr_f:
                 stderr_f.close()
         if rv < 0:
-            raise UndeterminedError('%s killed by signal %d' % (args[0], -rv))
+            raise GeneralError('%s killed by signal %d' % (args[0], -rv))
         if args[0] == 'mri_convert':
             stderr = open(stderr_fname).read()
             if 'ERROR: FreeSurfer license file' in stderr:
-                raise UndeterminedError('FreeSurfer license not found')
+                raise GeneralError('FreeSurfer license not found')
         return rv
 
     def check_call(self, args):
@@ -639,8 +626,6 @@ except Exception, exc:
 
     if isinstance(exc, DataError):
         ev = 3
-    elif isinstance(exc, UndeterminedError):
-        ev = 4
     else:
         ev = 1
 
