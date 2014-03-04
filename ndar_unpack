@@ -194,6 +194,9 @@ class BaseData:
         the NIfTI volume should be written to that file; otherwise a 
         temporary file should be created.  Returns the file name.
 
+        header(), which returns a string containing the header information (in 
+        an arbitrary format).
+
     Each subclass should define __init__() such that it returns only if 
     it is prepared to handle the data in the passed temporary directory.  
     If the class rejects the data (e.g. a DICOM handler recieves a NIfTI 
@@ -255,18 +258,24 @@ class BaseData:
                 self._image03['image_unit4'] = t_unit
         return self._image03
 
+    def stdout_fname(self):
+        return os.path.join(os.path.join(self.tempdir, 'output'), 
+                            '%d.out' % self.process_index)
+
+    def stderr_fname(self):
+        return os.path.join(os.path.join(self.tempdir, 'output'), 
+                            '%d.err' % self.process_index)
+
     def call(self, args):
         message(DEBUG, 'running (%d) %s' % (self.process_index, ' '.join(args)))
         stdout_f = None
         stderr_f = None
-        stdout_fname = os.path.join(os.path.join(self.tempdir, 'output'), 
-                                    '%d.out' % self.process_index)
-        stderr_fname = os.path.join(os.path.join(self.tempdir, 'output'), 
-                                    '%d.err' % self.process_index)
+        self.process_index += 1
+        stdout_fname = self.stdout_fname()
+        stderr_fname = self.stderr_fname()
         try:
             stdout_f = open(stdout_fname, 'w')
             stderr_f = open(stderr_fname, 'w')
-            self.process_index += 1
             rv = subprocess.call(args, stdout=stdout_f, stderr=stderr_f)
         except OSError, exc:
             # ENOENT if the program couldn't be found
@@ -323,6 +332,11 @@ class NIfTIGzData(BaseData):
         shutil.copy(self.contents[0], path)
         return path
 
+    def header(self):
+        args = ['nifti_tool', '-disp_hdr', '-infiles', self.contents[0]]
+        self.check_call(args)
+        return open(self.stdout_fname()).read()
+
 class AFNIData(BaseData):
 
     def __init__(self, tempdir):
@@ -359,6 +373,9 @@ class AFNIData(BaseData):
         self.check_call(['mri_convert', self.brik, path])
         return path
 
+    def header(self):
+        return open(self.head).read()
+
 class MINCData(BaseData):
 
     def __init__(self, tempdir):
@@ -387,6 +404,10 @@ class MINCData(BaseData):
             path = os.path.join(self.tempdir, 'volume.nii.gz')
         self.check_call(['mri_convert', self.contents[0], path])
         return path
+
+    def header(self):
+        self.check_call(['mincheader', self.contents[0]])
+        return open(self.stdout_fname()).read()
 
 class DICOMData(BaseData):
 
@@ -437,6 +458,10 @@ class DICOMData(BaseData):
         self.check_call(['mri_convert', self.contents[0], path])
         return path
 
+    def header(self):
+        do = dicom.read_file(self.contents[0])
+        return '%s\n' % str(do)
+
 #############################################################################
 # functions
 #
@@ -470,9 +495,6 @@ parser.add_argument('--self-check', '-S',
                     dest='self_check_flag', 
                     action='store_true', 
                     help='run self check')
-parser.add_argument('--volume', '-v', 
-                    metavar='<output volume>', 
-                    action='append')
 parser.add_argument('--download', '-d', 
                     dest='download_dir', 
                     metavar='<directory>', 
@@ -481,6 +503,10 @@ parser.add_argument('--unpack', '-u',
                     dest='unpack_dir', 
                     metavar='<directory>', 
                     help='unpack the source file')
+parser.add_argument('--header', '-H')
+parser.add_argument('--volume', '-v', 
+                    metavar='<output volume>', 
+                    action='append')
 parser.add_argument('--thumbnail', '-t')
 parser.add_argument('--image03', '-i')
 parser.add_argument('--format', '-f', 
@@ -531,7 +557,9 @@ if args.self_check_flag:
     # (program name, ndar_unpack functionality)
     programs = (('mri_convert', 'most functions'), 
                 ('fslreorient2std', 'thumbnail generation'), 
-                ('slicer', 'thumbnail generation'))
+                ('slicer', 'thumbnail generation'), 
+                ('nifti_tool', 'NIfTI header dumping'), 
+                ('mincheader', 'MINC header dumping'))
     for (pn, fct) in programs:
         try:
             subprocess.call([pn], stdout=dev_null, stderr=subprocess.STDOUT)
@@ -568,6 +596,9 @@ if args.image03 and args.image03 != '-' and os.path.exists(args.image03):
 
 if args.contents and args.contents != '-' and os.path.exists(args.contents):
     errors.append('%s exists' % args.contents)
+
+if args.header and args.header != '-' and os.path.exists(args.header):
+    errors.append('%s exists' % args.header)
 
 if args.input.startswith('s3://'):
     if not args.aws_access_key_id:
@@ -677,6 +708,20 @@ try:
 
     data = None
 
+    if args.header:
+        if not data:
+            data = find_data_handler(tempdir)
+        if args.header == '-':
+            fo = sys.stdout
+        else:
+            message(NOTICE, 'writing header to %s...' % args.header)
+            fo = open(args.header, 'w')
+        try:
+            fo.write(data.header())
+        finally:
+            if fo is not sys.stdout:
+                fo.close()
+
     if args.volume:
         if not data:
             data = find_data_handler(tempdir)
@@ -722,7 +767,7 @@ try:
     if not args.volume \
        and not args.thumbnail \
        and not args.image03 \
-       and not args.contents \
+       and not args.header \
        and not args.download_dir \
        and not args.unpack_dir:
         if not data:
