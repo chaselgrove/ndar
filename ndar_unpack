@@ -564,7 +564,7 @@ if args.self_check_flag:
         try:
             subprocess.call([pn], stdout=dev_null, stderr=subprocess.STDOUT)
         except:
-            message(ERROR, '%s missing: %s will fail' % (pn, fct))
+            message(NOTICE, '%s not found: %s will fail' % (pn, fct))
             ev = 1
         else:
             message(NOTICE, '%s okay' % pn)
