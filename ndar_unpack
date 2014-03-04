@@ -383,16 +383,15 @@ parser.add_argument('--self-check', '-S',
                     help='run self check')
 parser.add_argument('--volume', '-v', 
                     metavar='<output volume>', 
-                    action='append', 
-                    help='An output volume.')
+                    action='append')
 parser.add_argument('--download', '-d', 
                     dest='download_dir', 
                     metavar='<directory>', 
-                    help='Copy the source file')
+                    help='copy the source file')
 parser.add_argument('--unpack', '-u', 
                     dest='unpack_dir', 
                     metavar='<directory>', 
-                    help='Unpack the source file')
+                    help='unpack the source file')
 parser.add_argument('--thumbnail', '-t')
 parser.add_argument('--image03', '-i')
 parser.add_argument('--contents', '-c')
