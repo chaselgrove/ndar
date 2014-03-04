@@ -12,6 +12,7 @@ import subprocess
 import re
 import tempfile
 import shutil
+import distutils.dir_util
 import zipfile
 import json
 import dicom
@@ -384,6 +385,14 @@ parser.add_argument('--volume', '-v',
                     metavar='<output volume>', 
                     action='append', 
                     help='An output volume.')
+parser.add_argument('--download', '-d', 
+                    dest='download_dir', 
+                    metavar='<directory>', 
+                    help='Copy the source file')
+parser.add_argument('--unpack', '-u', 
+                    dest='unpack_dir', 
+                    metavar='<directory>', 
+                    help='Unpack the source file')
 parser.add_argument('--thumbnail', '-t')
 parser.add_argument('--image03', '-i')
 parser.add_argument('--contents', '-c')
@@ -395,12 +404,12 @@ parser.add_argument('--aws-access-key-id',
                     default=os.environ.get('AWS_ACCESS_KEY_ID'))
 parser.add_argument('--aws-secret-access-key', 
                     default=os.environ.get('AWS_SECRET_ACCESS_KEY'))
-parser.add_argument('--debug', '-d', 
+parser.add_argument('--debug', '-D', 
                     default=False, 
                     dest='debug_flag', 
                     action='store_true', 
                     help='debug flag; overrides -q')
-parser.add_argument('--dont-clean', '-D', 
+parser.add_argument('--dont-clean', 
                     default=True, 
                     dest='clean_flag', 
                     action='store_false', 
@@ -478,6 +487,12 @@ if args.input.startswith('s3://'):
     if not args.aws_secret_access_key:
         errors.append('input is from S3 but no AWS secret access key given')
 
+if args.download_dir and not os.path.isdir(args.download_dir):
+    errors.append('%s: not a directory' % args.download_dir)
+
+if args.unpack_dir and not os.path.isdir(args.unpack_dir):
+    errors.append('%s: not a directory' % args.unpack_dir)
+
 if errors:
     for e in errors:
         message(ERROR, e)
@@ -539,6 +554,14 @@ try:
     else:
         message(DEBUG, 'linking source to unpacked/')
         os.symlink(temp_source, os.path.join(unpacked_dir, source_basename))
+
+    if args.download_dir:
+        message(NOTICE, 'copying source to %s...' % args.download_dir)
+        shutil.copy(temp_source, args.download_dir)
+
+    if args.unpack_dir:
+        message(NOTICE, 'copying unpacked data to %s...' % args.unpack_dir)
+        distutils.dir_util.copy_tree(unpacked_dir, args.unpack_dir, verbose=0)
 
     # attempt to find a handler for the data
     # each class constructor will raise TypeError if it won't handle the data 
