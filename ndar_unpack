@@ -134,7 +134,7 @@ def find_data_handler(tempdir):
 
     message(NOTICE, 'inspecting data...')
     data = None
-    for data_class in (NIfTIGzData, AFNIData, DICOMData):
+    for data_class in (NIfTIGzData, AFNIData, MINCData, DICOMData):
         try:
             message(DEBUG, 'trying %s' % str(data_class))
             data = data_class(tempdir)
@@ -357,6 +357,35 @@ class AFNIData(BaseData):
         if not path:
             path = os.path.join(self.tempdir, 'volume.nii.gz')
         self.check_call(['mri_convert', self.brik, path])
+        return path
+
+class MINCData(BaseData):
+
+    def __init__(self, tempdir):
+        BaseData.__init__(self, tempdir)
+        if not self.contents:
+            raise TypeError('no files')
+        if len(self.contents) > 1:
+            raise TypeError('too many files')
+        if not self.contents[0].endswith('.mnc'):
+            raise TypeError('bad extension')
+        rv = self.call(['mri_convert', '-ro', self.contents[0]])
+        if rv:
+            raise DataError('could not read .mnc')
+        return
+
+    @property
+    def image03(self):
+        if self._image03:
+            return self._image03
+        self._image03_from_nifti()
+        self._image03['image_file_format'] = 'MINC'
+        return self._image03
+
+    def nii_gz(self, path=None):
+        if not path:
+            path = os.path.join(self.tempdir, 'volume.nii.gz')
+        self.check_call(['mri_convert', self.contents[0], path])
         return path
 
 class DICOMData(BaseData):
