@@ -134,7 +134,7 @@ def find_data_handler(tempdir):
 
     message(NOTICE, 'inspecting data...')
     data = None
-    for data_class in (NIfTIGzData, DICOMData):
+    for data_class in (NIfTIGzData, AFNIData, DICOMData):
         try:
             message(DEBUG, 'trying %s' % str(data_class))
             data = data_class(tempdir)
@@ -321,6 +321,42 @@ class NIfTIGzData(BaseData):
         if not path:
             return self.contents[0]
         shutil.copy(self.contents[0], path)
+        return path
+
+class AFNIData(BaseData):
+
+    def __init__(self, tempdir):
+        BaseData.__init__(self, tempdir)
+        if not self.contents:
+            raise TypeError('no files')
+        if len(self.contents) != 2:
+            raise TypeError('wrong number of files')
+        base = os.path.commonprefix(self.contents)
+        if not base:
+            raise TypeError('no common prefix')
+        if not base.endswith('.'):
+            raise TypeError('common prefix does not end with "."')
+        self.head = '%sHEAD' % base
+        self.brik = '%sBRIK' % base
+        if self.head not in self.contents or self.brik not in self.contents:
+            raise TypeError('not a HEAD/BRIK pair')
+        rv = self.call(['mri_convert', '-ro', self.brik])
+        if rv:
+            raise DataError('could not read .BRIK')
+        return
+
+    @property
+    def image03(self):
+        if self._image03:
+            return self._image03
+        self._image03_from_nifti()
+        self._image03['image_file_format'] = 'AFNI'
+        return self._image03
+
+    def nii_gz(self, path=None):
+        if not path:
+            path = os.path.join(self.tempdir, 'volume.nii.gz')
+        self.check_call(['mri_convert', self.brik, path])
         return path
 
 class DICOMData(BaseData):
