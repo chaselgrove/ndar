@@ -26,14 +26,15 @@ ndar_unpack checks, describes, and unpacks imaging data from NDAR.
 There are three main functions:
 
     Check: report whether the packaged data is sensible.  Is it just a header 
-           without volume data?  Is it not volume data at all?  Every 
-           ndar_unpack run first checks the data.
+           without volume data?  Is it not volume data at all?  This is the 
+           default action (if none others are given), but some describe and 
+           unpack functions require a data check.
 
     Describe: derive as much of the image03 structure as possible from the 
               data itself.
 
     Unpack: create a volume of a given format or a thumbnail image from the 
-            data.
+            data, or download or unzip the data.
 
 There are a number of outcomes from an ndar_unpack run.  Outcomes and their 
 exit values are:
@@ -122,6 +123,29 @@ image03_dicom = {'gender': ('PatientSex', None),
                  'mri_repetition_time_pd': ('RepititionTime', 
                                             convert_dicom_time),
                  'mri_echo_time_pd': ('EchoTime', convert_dicom_time)}
+
+def find_data_handler(tempdir):
+
+    """attempt to find a class (BaseData subclass) that can handle the data"""
+
+    # each class constructor will raise TypeError if it won't handle the data 
+    # and DataError if it finds an error in the data, so hidden in this loop 
+    # is also data checking
+
+    message(NOTICE, 'inspecting data...')
+    data = None
+    for data_class in (NIfTIGzData, DICOMData):
+        try:
+            message(DEBUG, 'trying %s' % str(data_class))
+            data = data_class(tempdir)
+        except TypeError, exc:
+            message(DEBUG, 'class complains: %s' % str(exc))
+            continue
+    if not data:
+        raise DataError('unrecognized data format')
+    message(DEBUG, 'class %s accepted the data' % str(data.__class__))
+
+    return data
 
 SILENT = 0
 ERROR = 1
@@ -394,11 +418,11 @@ parser.add_argument('--unpack', '-u',
                     help='unpack the source file')
 parser.add_argument('--thumbnail', '-t')
 parser.add_argument('--image03', '-i')
-parser.add_argument('--contents', '-c')
 parser.add_argument('--format', '-f', 
                     default='text', 
                     help='image03 output format', 
                     choices=('text', 'json'))
+parser.add_argument('--contents', '-c')
 parser.add_argument('--aws-access-key-id', 
                     default=os.environ.get('AWS_ACCESS_KEY_ID'))
 parser.add_argument('--aws-secret-access-key', 
@@ -562,58 +586,6 @@ try:
         message(NOTICE, 'copying unpacked data to %s...' % args.unpack_dir)
         distutils.dir_util.copy_tree(unpacked_dir, args.unpack_dir, verbose=0)
 
-    # attempt to find a handler for the data
-    # each class constructor will raise TypeError if it won't handle the data 
-    # and DataError if it finds an error in the data, so hidden in this loop 
-    # is also data checking
-    message(NOTICE, 'inspecting data...')
-    data = None
-    for data_class in (NIfTIGzData, DICOMData):
-        try:
-            message(DEBUG, 'trying %s' % str(data_class))
-            data = data_class(tempdir)
-        except TypeError, exc:
-            message(DEBUG, 'class complains: %s' % str(exc))
-            continue
-    if not data:
-        raise DataError('unrecognized data format')
-    message(DEBUG, 'class %s accepted the data' % str(data.__class__))
-
-    if args.volume:
-        for fname in args.volume:
-            message(NOTICE, 'creating %s...' % fname)
-            if fname.endswith('.nii.gz'):
-                data.nii_gz(fname)
-
-    if args.thumbnail:
-        message(NOTICE, 'creating %s...' % args.thumbnail)
-        vol_r = os.path.join(tempdir, 'vol_r.nii.gz')
-        data.check_call(['fslreorient2std', data.nii_gz(), vol_r])
-        data.check_call(['slicer', vol_r, '-a', args.thumbnail])
-
-    if args.image03:
-        if args.image03 == '-':
-            fo = sys.stdout
-        else:
-            message(NOTICE, 'writing image03 to %s...' % args.image03)
-            fo = open(args.image03, 'w')
-        try:
-            if args.format == 'text':
-                max_width = max([ len(f) for f in image03_fields ])
-                for field in image03_fields:
-                    val = data.image03[field]
-                    if val is None:
-                        str_val = ''
-                    else:
-                        str_val = str(val)
-                    fo.write('%s = %s\n' % (field.ljust(max_width), str_val))
-            else:
-                json.dump(data.image03, fo)
-                fo.write('\n')
-        finally:
-            if fo is not sys.stdout:
-                fo.close()
-
     if args.contents:
         if args.contents == '-':
             fo = sys.stdout
@@ -638,11 +610,62 @@ try:
             if fo is not sys.stdout:
                 fo.close()
 
+    data = None
+
+    if args.volume:
+        if not data:
+            data = find_data_handler(tempdir)
+        for fname in args.volume:
+            message(NOTICE, 'creating %s...' % fname)
+            if fname.endswith('.nii.gz'):
+                data.nii_gz(fname)
+
+    if args.thumbnail:
+        if not data:
+            data = find_data_handler(tempdir)
+        message(NOTICE, 'creating %s...' % args.thumbnail)
+        vol_r = os.path.join(tempdir, 'vol_r.nii.gz')
+        data.check_call(['fslreorient2std', data.nii_gz(), vol_r])
+        data.check_call(['slicer', vol_r, '-a', args.thumbnail])
+
+    if args.image03:
+        if not data:
+            data = find_data_handler(tempdir)
+        if args.image03 == '-':
+            fo = sys.stdout
+        else:
+            message(NOTICE, 'writing image03 to %s...' % args.image03)
+            fo = open(args.image03, 'w')
+        try:
+            if args.format == 'text':
+                max_width = max([ len(f) for f in image03_fields ])
+                for field in image03_fields:
+                    val = data.image03[field]
+                    if val is None:
+                        str_val = ''
+                    else:
+                        str_val = str(val)
+                    fo.write('%s = %s\n' % (field.ljust(max_width), str_val))
+            else:
+                json.dump(data.image03, fo)
+                fo.write('\n')
+        finally:
+            if fo is not sys.stdout:
+                fo.close()
+
+    # print a message if no other actions were taken
     if not args.volume \
        and not args.thumbnail \
        and not args.image03 \
-       and not args.contents:
+       and not args.contents \
+       and not args.download_dir \
+       and not args.unpack_dir:
+        if not data:
+            data = find_data_handler(tempdir)
         message(NOTICE, 'data okay')
+
+    if not data:
+        message(NOTICE, 'data was not checked')
 
 except Exception, exc:
 
