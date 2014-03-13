@@ -185,8 +185,8 @@ for f in files:
     fs_args = ['qsub', '/ndar/bin/launch_recon_all']
     first_args = ['qsub', '/ndar/bin/launch_first_all']
     if args.bogus:
-        fs_args.append('-b')
-        first_args.append('-b')
+        fs_args.append('--bogus')
+        first_args.append('--bogus')
     first_args.extend([f, subjectkey, str(interview_age), str(image03_id)])
     fs_args.extend([f, subjectkey, str(interview_age), str(image03_id)])
     if args.fs:
