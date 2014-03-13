@@ -2,7 +2,6 @@
 
 import sys
 import os
-import getpass
 import argparse
 import cx_Oracle
 
@@ -41,51 +40,38 @@ files = (['brain_stem_file', 'first-BrStem_first.vtk'],
          ['right_putamen_file', 'first-R_Puta_first.vtk'], 
          ['right_thalamus_proper_file', 'first-R_Thal_first.vtk'])
 
+# columns from image03
+image03_cols = ('image03_id', 
+                'subjectkey', 
+                'interview_age', 
+                'gender', 
+                'dataset_id')
+
 progname = os.path.basename(sys.argv[0])
 
 description = 'Store FIRST results in an NDAR database.'
 parser = argparse.ArgumentParser(description=description)
 
-parser.add_argument('--user', 
-                    required=True, 
-                    help='Database user')
-parser.add_argument('--password', 
-                    required=True, 
-                    help='Database password')
-parser.add_argument('--host', 
-                    required=True, 
-                    help='Database host')
-parser.add_argument('--service', 
-                    required=True, 
-                    help='Database service name')
-parser.add_argument('--subjectkey', 
-                    required=True, 
-                    help='Subject key')
-parser.add_argument('--interview-age', 
-                    required=True, 
-                    type=int, 
-                    help='Interview age')
-parser.add_argument('--gender', 
-                    required=True, 
-                    choices=('F', 'M'), 
-                    help='Gender')
-parser.add_argument('--dataset-id', 
-                    required=True, 
-                    type=int, 
-                    help='Dataset ID')
+parser.add_argument('--bogus', 
+                    default=False, 
+                    action='store_true', 
+                    help='reporting a test run')
 parser.add_argument('--pipeline', 
                     required=True, 
                     choices=('NITRC', 'LONI'), 
-                    help='Pipeline method')
+                    help='pipeline method')
 parser.add_argument('--file-name', 
                     required=True, 
-                    help='Original file name (from image03)')
+                    help='original file name (from image03)')
 parser.add_argument('first_dir', 
-                    help='Path to FIRST directory')
-parser.add_argument('first_stats_file', 
-                    help='Path to first.stats')
+                    help='path to FIRST directory')
 
 args = parser.parse_args()
+
+for var in ('DB_HOST', 'DB_SERVICE', 'DB_USER', 'DB_PASSWORD'):
+    if var not in os.environ:
+        sys.stderr.write('%s: %s not set\n' % (progname, var))
+        sys.exit(1)
 
 if not os.path.isdir(args.first_dir):
     sys.stderr.write('%s: %s: not a directory\n' % (progname, args.first_dir))
@@ -104,10 +90,10 @@ if missing_files:
     for f in missing_files:
         print '    %s' % f
 
-print 'reading %s...' % args.first_stats_file
+print 'reading first.stats...'
 
 try:
-    fo = open(args.first_stats_file)
+    fo = open(os.path.join(args.first_dir, 'first.stats'))
 except Exception, data:
     sys.stderr.write('%s: %s\n' % (progname, str(data)))
     sys.exit(1)
@@ -160,19 +146,21 @@ fo.close()
 
 print 'updating database...'
 
-dsn = cx_Oracle.makedsn(args.host, 1521, args.service)
-try:
-    db = cx_Oracle.connect(args.user, args.password, dsn)
-except Exception, data:
-    sys.stderr.write('%s: %s\n' % (progname, str(data)))
-    sys.exit(1)
+dsn = cx_Oracle.makedsn(os.environ['DB_HOST'], 1521, os.environ['DB_SERVICE'])
+db = cx_Oracle.connect(os.environ['DB_USER'], os.environ['DB_PASSWORD'], dsn)
 
-query_cols = ['subjectkey', 
-              'interview_age', 
-              'gender', 
-              'file_name', 
-              'dataset_id', 
-              'pipeline']
+c = db.cursor()
+
+query = """SELECT %s 
+             FROM image03 
+            WHERE image_file = :image_file""" % ', '.join(image03_cols)
+c.execute(query)
+image03_vals = dict(zip(image03_cols, c.fetchone()))
+
+if args.bogus:
+    image03_vals['subjectkey'] = 'bogus%s' % image03_vals['subjectkey']
+
+query_cols = list(image03_cols)
 query_cols.extend(cols.itervalues())
 query_cols.extend([ el[0] for el in files ])
 
@@ -182,18 +170,15 @@ query += 'VALUES '
 query += '(%s)' % ', '.join([':%s' % col for col in query_cols])
 
 query_params = dict(vols)
-query_params['subjectkey'] = args.subjectkey
-query_params['interview_age'] = args.interview_age
-query_params['gender'] = args.gender
+query_params.update(image03_vals)
 query_params['file_name'] = args.file_name
-query_params['dataset_id'] = args.dataset_id
 query_params['pipeline'] = args.pipeline
 
 for (col, fname) in files:
     query_params[col] = fname
 
-c = db.cursor()
 c.execute(query, query_params)
+
 c.close()
 
 db.commit()

@@ -1,0 +1,213 @@
+#!/usr/bin/python
+
+import sys
+import os
+import argparse
+import subprocess
+import cx_Oracle
+
+# columns that we copy to freesurfer_structures and first_structures at the 
+# end of processing (so we check here that they are unique for each source 
+# file)
+extra_cols = ('subjectkey', 
+              'interview_age', 
+              'gender', 
+              'dataset_id')
+
+progname = os.path.basename(sys.argv[0])
+
+description = 'Queue NDAR structural processing runs.'
+parser = argparse.ArgumentParser(description=description)
+
+parser.add_argument('--no-fs', 
+                    action='store_false', 
+                    default=True, 
+                    dest='fs', 
+                    help='don\'t run recon-all')
+parser.add_argument('--no-first', 
+                    action='store_false', 
+                    default=True, 
+                    dest='first', 
+                    help='don\'t run FIRST')
+parser.add_argument('--bogus', '-b', 
+                    action='store_true', 
+                    default=False, 
+                    help='queue bogus structural runs')
+parser.add_argument('--check-only', '-c', 
+                    action='store_true', 
+                    default=False, 
+                    help='check database entries only (don\'t queue runs)')
+parser.add_argument('--file', '-f', 
+                    type=file, 
+                    help='file containing S3 files to process')
+parser.add_argument('files', 
+                    help='S3 files to process', 
+                    nargs='*')
+
+args = parser.parse_args()
+
+if not args.files and not args.file:
+    parser.print_usage(sys.stderr)
+    fmt = '%s: error: S3 files (file or positional arguments) required\n'
+    sys.stderr.write(fmt % progname)
+    sys.exit(2)
+
+for var in ('DB_HOST', 'DB_SERVICE', 'DB_USER', 'DB_PASSWORD'):
+    if var not in os.environ:
+        sys.stderr.write('%s: %s not set\n' % (progname, var))
+        sys.exit(1)
+
+files = []
+if args.file:
+    files.extend([ line.rstrip('\n') for line in args.file ])
+if args.files:
+    files.extend(args.files)
+
+print 'connecting to database...'
+
+dsn = cx_Oracle.makedsn(os.environ['DB_HOST'], 1521, os.environ['DB_SERVICE'])
+db = cx_Oracle.connect(os.environ['DB_USER'], os.environ['DB_PASSWORD'], dsn)
+
+c = db.cursor()
+
+print 'checking database for files...'
+
+run_info = {}
+
+missing_files = list(files)
+query = 'SELECT image03_id, image_file, subjectkey, interview_age FROM image03'
+c.execute(query)
+for (image03_id, image_file, subjectkey, interview_age) in c:
+    if image_file in missing_files:
+        missing_files.remove(image_file)
+    else:
+        run_info[image_file] = (image03_id, subjectkey, interview_age)
+
+if missing_files:
+    print 'ERROR: missing files:'
+    print
+    for f in missing_files:
+        print '    %s' % f
+    print
+    sys.exit(1)
+
+print 'checking image03_id/image_file uniqueness...'
+
+c.execute('SELECT COUNT(DISTINCT image03_id) FROM image03')
+n_image03_ids = c.fetchone()[0]
+print '    image03_ids: %d' % n_image03_ids
+
+c.execute('SELECT COUNT(DISTINCT image_file) FROM image03')
+n_image_files = c.fetchone()[0]
+print '    image_files: %d' % n_image_files
+
+c.execute("""SELECT COUNT(*) 
+               FROM (SELECT DISTINCT image03_id, image_file 
+                       FROM image03)""")
+n_pairs = c.fetchone()[0]
+print '    pairs: %d' % n_pairs
+
+if n_image_files != n_image03_ids or n_pairs != n_image03_ids:
+    print 'ERROR'
+    sys.exit(1)
+
+print 'checking extra column uniqueness...'
+
+for col in extra_cols:
+    query = """SELECT COUNT(*) 
+                 FROM (SELECT DISTINCT image03_id, image_file, %s 
+                         FROM image03)""" % col
+    c.execute(query)
+    n = c.fetchone()[0]
+    print '    %s: %d' % (col, n)
+    if n != n_image03_ids:
+        print 'ERROR'
+        sys.exit(1)
+
+if args.fs:
+
+    print 'checking completed FS runs...'
+
+    done_files = []
+    c.execute("SELECT file_name FROM freesurfer_structures")
+    for row in c:
+        if row[0] in args.files:
+            done_files.append(row[0])
+
+    if done_files:
+        print 'ERROR: FS done files:'
+        print
+        for f in done_files:
+            print '    %s' % f
+        print
+        sys.exit(1)
+
+if args.first:
+
+    print 'checking completed FIRST runs...'
+
+    done_files = []
+    c.execute("SELECT file_name FROM first_structures")
+    for row in c:
+        if row[0] in args.files:
+            done_files.append(row[0])
+
+    if done_files:
+        print 'ERROR: FIRST done files:'
+        print
+        for f in done_files:
+            print '    %s' % f
+        print
+        sys.exit(1)
+
+c.close()
+db.close()
+
+if args.check_only:
+    print 'done checks'
+    sys.exit(0)
+
+if not args.fs and not args.first:
+    print 'no FS or FIRST; exiting'
+    sys.exit(0)
+
+if args.bogus:
+    fs_report = '    FS (bogus): %s'
+    first_report = '    FIRST (bogus): %s'
+else:
+    fs_report = '    FS: %s'
+    first_report = '    FIRST: %s'
+
+for f in files:
+    print f
+#    (image03_id, subjectkey, interview_age) = run_info[f]
+    print '    %d, %s, %d' % (image03_id, subjectkey, interview_age)
+    fs_args = ['qsub', '/ndar/bin/launch_recon_all']
+    first_args = ['qsub', '/ndar/bin/launch_first_all']
+    if args.bogus:
+        fs_args.append('-b')
+        first_args.append('-b')
+    first_args.extend([f, subjectkey, str(interview_age), str(image03_id)])
+    fs_args.extend([f, subjectkey, str(interview_age), str(image03_id)])
+    if args.fs:
+        po = subprocess.Popen(fs_args, 
+                              stdout=subprocess.PIPE, 
+                              stderr=subprocess.PIPE)
+        if po.wait() != 0:
+            print 'ERROR in qsub:'
+            print po.stderr.read()
+            sys.exit(1)
+        print fs_report % po.stdout.read().strip()
+    if args.first:
+        po = subprocess.Popen(first_args, 
+                              stdout=subprocess.PIPE, 
+                              stderr=subprocess.PIPE)
+        if po.wait() != 0:
+            print 'ERROR in qsub:'
+            print po.stderr.read()
+            sys.exit(1)
+        print first_report % po.stdout.read().strip()
+
+sys.exit(0)
+
+# eof

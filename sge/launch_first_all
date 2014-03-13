@@ -3,15 +3,12 @@
 #$ -o $HOME/logs/first.$JOB_ID.stdout
 #$ -e $HOME/logs/first.$JOB_ID.stderr
 
-# set this to copy sample data rather than actually running the analysis
-bogus_run=
-
-# prefix for database rows for easy identification and removal
-if [ $bogus_run ]
+if [ x"$1" = x"-b" ]
 then
-    bogus_prefix=bogus
+    bogus_run=1
+    shift
 else
-    bogus_prefix=
+    bogus=
 fi
 
 clean_up()
@@ -29,21 +26,21 @@ clean_up()
 
 } # end clean_up()
 
-if [ -z $DB_PW ]
-then
-    echo "DB_PW not set" >&2
-    exit 1
-fi
-
 trap clean_up EXIT
 
 set -e
 
-subjectkey=$1
-interview_age=$2
-gender=$3
-dataset_id=$4
-file_name=$5
+file_name=$1
+subjectkey=$2
+interview_age=$3
+image03_id=$4
+
+if [ $bogus_run ]
+then
+    subj_id=bogus-${subjectkey}-${interview_age}-${image03_id}
+else
+    subj_id=${subjectkey}-${interview_age}-${image03_id}
+fi
 
 cat << EOF
 
@@ -51,25 +48,21 @@ starting launch_first_all
 
 `date`
 
+file_name = $file_name
 subjectkey = $subjectkey
 interview_age = $interview_age
-gender = $gender
-dataset_id = $dataset_id
-file_name = $file_name
+image03_id = $image03_id
+
+subj_id = $subj_id
+
+bogus_run = $bogus_run
 
 instance ID = `GET http://169.254.169.254/latest/meta-data/instance-id`
 instance type = `GET http://169.254.169.254/latest/meta-data/instance-type`
 
 EOF
 
-FREESURFER_HOME=/ndar/freesurfer
-. $FREESURFER_HOME/FreeSurferEnv.sh
-
-export FSLDIR=/ndar/fsl
-. $FSLDIR/etc/fslconf/fsl.sh
-PATH=$FSLDIR/bin:$PATH
-
-working_dir=/scratch/ubuntu/$subjectkey
+working_dir=/scratch/ubuntu/$subj_id
 mkdir $working_dir
 
 cd $working_dir
@@ -77,13 +70,13 @@ cd $working_dir
 if [ $bogus_run ]
 then
 
-    cp -rv /ndar/test_data/NDARYN002ECR $subjectkey
-    cd $subjectkey
+    cp -rv /ndar/test_data/NDARYN002ECR $subj_id
+    cd $subj_id
 
 else
 
-    mkdir $subjectkey
-    cd $subjectkey
+    mkdir $subj_id
+    cd $subj_id
 
     ndar_unpack -v anat.nii.gz $file_name
 
@@ -97,22 +90,30 @@ else
 
 fi
 
-store_first_results --user nitrc \
-                    --password $DB_PW \
-                    --host mindar.cqahbwk3l1mb.us-east-1.rds.amazonaws.com \
-                    --service MINDAR \
-                    --subjectkey ${bogus_prefix}${subjectkey} \
-                    --interview-age $interview_age \
-                    --gender $gender \
-                    --dataset-id $dataset_id \
-                    --pipeline NITRC \
-                    --file-name ${bogus_prefix}${file_name} \
-                    . first.stats
+if [ $bogus_run ]
+then
+    db_sk=bogus$subjectkey
+else
+    db_sk=$subjectkey
+fi
 
 cd ..
 
-zip -r ${subjectkey}.zip $subjectkey
-aws s3 cp ${subjectkey}.zip s3://NITRC_data/FIRST/bogus${subjectkey}.zip
+zip -r ${subj_id}.zip $subj_id
+aws s3 cp ${subj_id}.zip s3://NITRC_data/FIRST/${subj_id}.zip
+
+if [ $bogus_run ]
+then
+    store_first_results --bogus \
+                        --file-name $file_name \
+                        --pipeline NITRC \
+                        $subj_id $subj_id/first.stats
+else
+    store_first_results --bogus \
+                        --file-name $file_name \
+                        --pipeline NITRC \
+                        $subj_id $subj_id/first.stats
+fi
 
 clean_up
 trap '' EXIT
