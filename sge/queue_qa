@@ -1,0 +1,132 @@
+#!/usr/bin/python
+
+import sys
+import os
+import argparse
+import subprocess
+import cx_Oracle
+
+# columns that we copy to imaging_qa01 at the # end of processing 
+# (so we check here that they are unique for each source file)
+extra_cols = ('dataset_id', 
+              'subjectkey', 
+              'src_subject_id', 
+              'interview_date', 
+              'interview_age', 
+              'gender', 
+              'experiment_id', 
+              'collection_id', 
+              'collection_title', 
+              'collection', 
+              'scan_type')
+
+qa_types = {'MR structural (FSPGR)': 'structural', 
+            'MR structural (MPRAGE)': 'structural', 
+            'MR structural (T1)': 'structural'}
+
+progname = os.path.basename(sys.argv[0])
+
+description = 'Queue NDAR QA runs.'
+parser = argparse.ArgumentParser(description=description)
+
+parser.add_argument('--bogus', '-b', 
+                    action='store_true', 
+                    default=False, 
+                    help='queue bogus structural runs')
+parser.add_argument('--check-only', '-c', 
+                    action='store_true', 
+                    default=False, 
+                    help='check database entries only (don\'t queue runs)')
+
+args = parser.parse_args()
+
+for var in ('DB_HOST', 'DB_SERVICE', 'DB_USER', 'DB_PASSWORD'):
+    if var not in os.environ:
+        sys.stderr.write('%s: %s not set\n' % (progname, var))
+        sys.exit(1)
+
+print 'connecting to database...'
+
+dsn = cx_Oracle.makedsn(os.environ['DB_HOST'], 1521, os.environ['DB_SERVICE'])
+db = cx_Oracle.connect(os.environ['DB_USER'], os.environ['DB_PASSWORD'], dsn)
+
+c = db.cursor()
+
+print 'checking image03_id/image_file uniqueness...'
+
+c.execute('SELECT COUNT(DISTINCT image03_id) FROM image03')
+n_image03_ids = c.fetchone()[0]
+print '    image03_ids: %d' % n_image03_ids
+
+c.execute('SELECT COUNT(DISTINCT image_file) FROM image03')
+n_image_files = c.fetchone()[0]
+print '    image_files: %d' % n_image_files
+
+c.execute("""SELECT COUNT(*) 
+               FROM (SELECT DISTINCT image03_id, image_file 
+                       FROM image03)""")
+n_pairs = c.fetchone()[0]
+print '    pairs: %d' % n_pairs
+
+if n_image_files != n_image03_ids or n_pairs != n_image03_ids:
+    print 'ERROR'
+    sys.exit(1)
+
+print 'checking extra column uniqueness...'
+
+for col in extra_cols:
+    query = """SELECT COUNT(*) 
+                 FROM (SELECT DISTINCT image03_id, image_file, %s 
+                         FROM image03)""" % col
+    c.execute(query)
+    n = c.fetchone()[0]
+    print '    %s: %d' % (col, n)
+    if n != n_image03_ids:
+        print 'ERROR'
+        sys.exit(1)
+
+if args.check_only:
+    print 'done checks'
+    sys.exit(0)
+
+query = """SELECT image_file, scan_type 
+             FROM image03 
+            WHERE image_file NOT IN (SELECT file_source 
+                                       FROM imaging_qa01) 
+              AND scan_type IS NOT NULL"""
+
+c.execute(query)
+
+if args.bogus:
+    report = '    %s: %s (BOGUS): %s'
+else:
+    report = '    %s: %s: %s'
+
+for (image_file, scan_type) in c:
+    print image_file
+    try:
+        qa_type = qa_types[scan_type]
+    except KeyError:
+        print '    %s: unsupported; skipping' % scan_type
+        continue
+    print '    %s: %s' % (scan_type, qa_type)
+    if qa_type == 'structural':
+        cmd_args = ['qsub', '/ndar/bin/launch_structural_qa']
+    if args.bogus:
+        cmd_args.append('--bogus')
+    cmd_args.append(image_file)
+    po = subprocess.Popen(cmd_args, 
+                          stdout=subprocess.PIPE, 
+                          stderr=subprocess.PIPE)
+    if po.wait() != 0:
+        print 'ERROR in qsub:'
+        print po.stderr.read()
+        sys.exit(1)
+    print report % (scan_type, qa_type, po.stdout.read().strip())
+
+c.close()
+db.close()
+
+sys.exit(0)
+
+# eof
