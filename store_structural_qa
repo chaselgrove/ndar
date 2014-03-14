@@ -4,9 +4,10 @@ import sys
 import os
 import getpass
 import argparse
+import datetime
 import cx_Oracle
 
-classes = ('external', 'brain', 'csf', 'gm', 'wm', 'snr') 
+classes = ('external', 'brain', 'csf', 'gm', 'wm') 
 
 progname = os.path.basename(sys.argv[0])
 
@@ -37,7 +38,7 @@ parser.add_argument('--interview-age',
                     help='Interview age')
 parser.add_argument('--interview-date', 
                     required=True, 
-                    help='Interview date')
+                    help='Interview date (YYYY-MM-DD)')
 parser.add_argument('--gender', 
                     required=True, 
                     choices=('F', 'M'), 
@@ -68,10 +69,17 @@ if not os.path.isdir(args.qa_dir):
     sys.stderr.write('%s: %s: not a directory\n' % (progname, args.first_dir))
     sys.exit(1)
 
+try:
+    (y, m, d) = [ int(val) for val in args.interview_date.split('-') ]
+    interview_date = datetime.date(y, m, d)
+except:
+    sys.stderr.write('%s: bad date "%s"\n' % (progname, args.interview_date))
+    sys.exit(1)
+
 # vals[tissue class] = values
 vals = {}
 for c in classes:
-    fname = os.path.join(args.qa_dir, '%s.stats')
+    fname = os.path.join(args.qa_dir, '%s.stats' % c)
     print 'reading %s...' % fname
     try:
         fo = open(fname)
@@ -90,7 +98,7 @@ for c in classes:
                'volume': float(str_vals[7])}
 
 try:
-    snr = vals['brain']['mean'] / vals['externals']['std']
+    snr = vals['brain']['mean'] / vals['external']['std']
 except ZeroDivisionError:
     snr = None
 
@@ -118,7 +126,7 @@ query_cols = ['dataset_id',
 query_params = {'dataset_id': args.dataset_id, 
                 'subjectkey': args.subjectkey, 
                 'src_subject_id': args.src_subject_id, 
-                'interview_date': args.interview_date, 
+                'interview_date': interview_date, 
                 'interview_age': args.interview_age, 
                 'gender': args.gender, 
                 'experiment_id': args.experiment_id, 
