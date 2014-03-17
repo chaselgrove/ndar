@@ -37,6 +37,10 @@ parser.add_argument('--check-only', '-c',
                     action='store_true', 
                     default=False, 
                     help='check database entries only (don\'t queue runs)')
+parser.add_argument('--weak-check', '-w', 
+                    action='store_true', 
+                    default=False, 
+                    help='use a weak database check')
 
 args = parser.parse_args()
 
@@ -52,36 +56,57 @@ db = cx_Oracle.connect(os.environ['DB_USER'], os.environ['DB_PASSWORD'], dsn)
 
 c = db.cursor()
 
-print 'checking image03_id/image_file uniqueness...'
+if not args.weak_check:
 
-c.execute('SELECT COUNT(DISTINCT image03_id) FROM image03')
-n_image03_ids = c.fetchone()[0]
-print '    image03_ids: %d' % n_image03_ids
+    print 'checking image03_id/image_file uniqueness...'
 
-c.execute('SELECT COUNT(DISTINCT image_file) FROM image03')
-n_image_files = c.fetchone()[0]
-print '    image_files: %d' % n_image_files
+    c.execute('SELECT COUNT(DISTINCT image03_id) FROM image03')
+    n_image03_ids = c.fetchone()[0]
+    print '    image03_ids: %d' % n_image03_ids
 
-c.execute("""SELECT COUNT(*) 
-               FROM (SELECT DISTINCT image03_id, image_file 
-                       FROM image03)""")
-n_pairs = c.fetchone()[0]
-print '    pairs: %d' % n_pairs
+    c.execute('SELECT COUNT(DISTINCT image_file) FROM image03')
+    n_image_files = c.fetchone()[0]
+    print '    image_files: %d' % n_image_files
 
-if n_image_files != n_image03_ids or n_pairs != n_image03_ids:
-    print 'ERROR'
-    sys.exit(1)
+    c.execute("""SELECT COUNT(*) 
+                   FROM (SELECT DISTINCT image03_id, image_file 
+                           FROM image03)""")
+    n_pairs = c.fetchone()[0]
+    print '    pairs: %d' % n_pairs
 
-print 'checking extra column uniqueness...'
+    if n_image_files != n_image03_ids or n_pairs != n_image03_ids:
+        print 'ERROR'
+        sys.exit(1)
 
-for col in extra_cols:
+    print 'checking extra column uniqueness...'
+
+    for col in extra_cols:
+        query = """SELECT COUNT(*) 
+                     FROM (SELECT DISTINCT image03_id, image_file, %s 
+                             FROM image03)""" % col
+        c.execute(query)
+        n = c.fetchone()[0]
+        print '    %s: %d' % (col, n)
+        if n != n_image03_ids:
+            print 'ERROR'
+            sys.exit(1)
+
+else:
+
+    print 'checking image_file/scan_type uniqueness...'
+
+    c.execute('SELECT COUNT(DISTINCT image_file) FROM image03')
+    n_image_files = c.fetchone()[0]
+    print '    image_files: %d' % n_image_files
+
     query = """SELECT COUNT(*) 
-                 FROM (SELECT DISTINCT image03_id, image_file, %s 
-                         FROM image03)""" % col
+                 FROM (SELECT DISTINCT image_file, scan_type 
+                         FROM image03)"""
     c.execute(query)
-    n = c.fetchone()[0]
-    print '    %s: %d' % (col, n)
-    if n != n_image03_ids:
+    n_pairs = c.fetchone()[0]
+    print '    image_file+scan_type: %d' % n_pairs
+
+    if n_pairs != n_image_files:
         print 'ERROR'
         sys.exit(1)
 
@@ -114,6 +139,8 @@ for (image_file, scan_type) in c:
         cmd_args = ['qsub', '/ndar/bin/launch_structural_qa']
     if args.bogus:
         cmd_args.append('--bogus')
+    if args.weak_check:
+        cmd_args.append('--weak-check')
     cmd_args.append(image_file)
     po = subprocess.Popen(cmd_args, 
                           stdout=subprocess.PIPE, 
