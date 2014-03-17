@@ -3,7 +3,7 @@
 #$ -o $HOME/logs/first.$JOB_ID.stdout
 #$ -e $HOME/logs/first.$JOB_ID.stderr
 
-if [ x"$1" = x"-b" ]
+if [ x"$1" = x"--bogus" ]
 then
     bogus_run=1
     shift
