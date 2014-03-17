@@ -1,0 +1,37 @@
+#!/bin/bash -e
+
+progname=`basename $0`
+
+if [ $# -ne 2 ]
+then
+    echo "usage: $progname <source file> <working directory>"
+    exit 1
+fi
+
+source="$1"
+working_dir="$2"
+
+cd "$working_dir"
+
+ndar_unpack "$source" -v anat.nii.gz
+
+fslreorient2std anat anat_r
+
+bet anat_r anat_brain -A -m
+fslmaths anat_brain_outskin_mask -sub 1 -mul -1 external
+fast -t 1 anat_brain
+fslstats anat_r -k external -R -r -m -s -v > external.stats
+fslstats anat_r -k anat_brain_mask -R -r -m -s -v > brain.stats
+
+fslmaths anat_brain_seg -thr 1 -uthr 1 -bin csf
+fslstats anat_r -k csf -R -r -m -s -v > csf.stats
+
+fslmaths anat_brain_seg -thr 2 -uthr 2 -bin gm
+fslstats anat_r -k gm -R -r -m -s -v > gm.stats
+
+fslmaths anat_brain_seg -thr 3 -uthr 3 -bin wm
+fslstats anat_r -k wm -R -r -m -s -v > wm.stats
+
+exit 0
+
+# eof
