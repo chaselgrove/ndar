@@ -47,14 +47,16 @@ instance type = `GET http://169.254.169.254/latest/meta-data/instance-type`
 
 EOF
 
-mktemp -d --tmpdir=/scratch/ubuntu
+working_dir=`mktemp -d --tmpdir=/scratch/ubuntu`
 
 cd $working_dir
 
 if [ $bogus_run ]
 then
 
-    cp -rv /ndar/test_data/NDARYN002ECR/* $subj_id
+    cp -rv /ndar/test_data/structural_qa/* .
+
+    store_structural_qa --bogus --file-name $file_name .
 
 else
 
@@ -67,6 +69,8 @@ else
     mri_segstats --sum first.stats \
                  --ctab $FREESURFER_HOME/FreeSurferColorLUT.txt \
                  --seg first_all_fast_firstseg.nii.gz
+
+    store_structural_qa --file-name $file_name .
 
 fi
 
