@@ -2,9 +2,7 @@
 
 import sys
 import os
-import getpass
 import argparse
-import datetime
 import cx_Oracle
 
 classes = ('external', 'brain', 'csf', 'gm', 'wm') 
@@ -14,66 +12,25 @@ progname = os.path.basename(sys.argv[0])
 description = 'Store structural QA results in an NDAR database.'
 parser = argparse.ArgumentParser(description=description)
 
-parser.add_argument('--user', 
-                    required=True, 
-                    help='Database user')
-parser.add_argument('--password', 
-                    required=True, 
-                    help='Database password')
-parser.add_argument('--host', 
-                    required=True, 
-                    help='Database host')
-parser.add_argument('--service', 
-                    required=True, 
-                    help='Database service name')
-parser.add_argument('--subjectkey', 
-                    required=True, 
-                    help='Subject key')
-parser.add_argument('--experiment-id', 
-                    required=True, 
-                    help='Experiment ID')
-parser.add_argument('--interview-age', 
-                    required=True, 
-                    type=int, 
-                    help='Interview age')
-parser.add_argument('--interview-date', 
-                    required=True, 
-                    help='Interview date (YYYY-MM-DD)')
-parser.add_argument('--gender', 
-                    required=True, 
-                    choices=('F', 'M'), 
-                    help='Gender')
-parser.add_argument('--dataset-id', 
-                    required=True, 
-                    type=int, 
-                    help='Dataset ID')
-parser.add_argument('--src-subject-id', 
-                    required=True, 
-                    help='Source subject ID')
-parser.add_argument('--collection-id', 
-                    required=True, 
-                    type=int, 
-                    help='Collection ID')
-parser.add_argument('--collection-title', 
-                    required=True, 
-                    help='Collection title')
 parser.add_argument('--file-name', 
                     required=True, 
-                    help='Original file name (from image03)')
+                    help='original file name (from image03)')
+parser.add_argument('--bogus', 
+                    default=False, 
+                    action='store_true', 
+                    help='reporting a test run')
 parser.add_argument('qa_dir', 
-                    help='Path to QA directory')
+                    help='path to QA directory')
 
 args = parser.parse_args()
 
+for var in ('DB_HOST', 'DB_SERVICE', 'DB_USER', 'DB_PASSWORD'):
+    if var not in os.environ:
+        sys.stderr.write('%s: %s not set\n' % (progname, var))
+        sys.exit(1)
+
 if not os.path.isdir(args.qa_dir):
     sys.stderr.write('%s: %s: not a directory\n' % (progname, args.first_dir))
-    sys.exit(1)
-
-try:
-    (y, m, d) = [ int(val) for val in args.interview_date.split('-') ]
-    interview_date = datetime.date(y, m, d)
-except:
-    sys.stderr.write('%s: bad date "%s"\n' % (progname, args.interview_date))
     sys.exit(1)
 
 # vals[tissue class] = values
@@ -104,36 +61,21 @@ except ZeroDivisionError:
 
 print 'updating database...'
 
-dsn = cx_Oracle.makedsn(args.host, 1521, args.service)
+dsn = cx_Oracle.makedsn(os.environ['DB_HOST'], 1521, os.environ['DB_SERVICE'])
 try:
-    db = cx_Oracle.connect(args.user, args.password, dsn)
+    db = cx_Oracle.connect(os.environ['DB_USER'], 
+                           os.environ['DB_PASSWORD'], 
+                           dsn)
 except Exception, data:
     sys.stderr.write('%s: %s\n' % (progname, str(data)))
     sys.exit(1)
 
-query_cols = ['dataset_id', 
-              'subjectkey', 
-              'src_subject_id', 
-              'interview_date', 
-              'interview_age', 
-              'gender', 
-              'experiment_id', 
-              'file_source', 
-              'collection_id', 
-              'collection_title', 
-              'snr']
+query_cols = ['file_source']
 
-query_params = {'dataset_id': args.dataset_id, 
-                'subjectkey': args.subjectkey, 
-                'src_subject_id': args.src_subject_id, 
-                'interview_date': interview_date, 
-                'interview_age': args.interview_age, 
-                'gender': args.gender, 
-                'experiment_id': args.experiment_id, 
-                'file_source': args.file_name, 
-                'collection_id': args.collection_id, 
-                'collection_title': args.collection_title, 
-                'snr': snr}
+if args.bogus:
+    query_params = {'file_source': 'bogus-%s' % args.file_name}
+else:
+    query_params = {'file_source': args.file_name}
 
 for c in classes:
     for val_type in vals[c]:
