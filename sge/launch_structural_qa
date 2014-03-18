@@ -1,0 +1,82 @@
+#$ -V
+#$ -S /bin/bash
+#$ -o $HOME/logs/structural_qa.$JOB_ID.stdout
+#$ -e $HOME/logs/structural_qa.$JOB_ID.stderr
+
+if [ x"$1" = x"--bogus" ]
+then
+    bogus_run=1
+    shift
+else
+    bogus_run=
+fi
+
+clean_up()
+{
+
+    echo 'cleaning up'
+
+    if [ -z $working_dir ] ; then return 0 ; fi
+
+    if [ ! -d $working_dir ] ; then return 0 ; fi
+
+    rm -r $working_dir
+
+    return 0
+
+} # end clean_up()
+
+trap clean_up EXIT
+
+set -e
+
+file_name=$1
+
+cat << EOF
+
+starting structural_qa
+
+`date`
+
+file_name = $file_name
+
+bogus_run = $bogus_run
+
+instance ID = `GET http://169.254.169.254/latest/meta-data/instance-id`
+instance type = `GET http://169.254.169.254/latest/meta-data/instance-type`
+
+EOF
+
+mktemp -d --tmpdir=/scratch/ubuntu
+
+cd $working_dir
+
+if [ $bogus_run ]
+then
+
+    cp -rv /ndar/test_data/NDARYN002ECR/* $subj_id
+
+else
+
+    ndar_unpack -v anat.nii.gz $file_name
+
+    echo 'starting first'
+    /usr/bin/time -v run_first_all -i anat -o first
+
+    echo 'starting mri_segstats'
+    mri_segstats --sum first.stats \
+                 --ctab $FREESURFER_HOME/FreeSurferColorLUT.txt \
+                 --seg first_all_fast_firstseg.nii.gz
+
+fi
+
+clean_up
+trap '' EXIT
+
+echo
+echo done `date`
+echo
+
+exit 0
+
+# eof
