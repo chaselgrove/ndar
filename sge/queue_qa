@@ -6,20 +6,6 @@ import argparse
 import subprocess
 import cx_Oracle
 
-# columns that we copy to imaging_qa01 at the # end of processing 
-# (so we check here that they are unique for each source file)
-extra_cols = ('dataset_id', 
-              'subjectkey', 
-              'src_subject_id', 
-              'interview_date', 
-              'interview_age', 
-              'gender', 
-              'experiment_id', 
-              'collection_id', 
-              'collection_title', 
-              'collection', 
-              'scan_type')
-
 qa_types = {'MR structural (FSPGR)': 'structural', 
             'MR structural (MPRAGE)': 'structural', 
             'MR structural (T1)': 'structural'}
@@ -33,126 +19,108 @@ parser.add_argument('--bogus', '-b',
                     action='store_true', 
                     default=False, 
                     help='queue bogus structural runs')
-parser.add_argument('--check-only', '-c', 
-                    action='store_true', 
-                    default=False, 
-                    help='check database entries only (don\'t queue runs)')
-parser.add_argument('--weak-check', '-w', 
-                    action='store_true', 
-                    default=False, 
-                    help='use a weak database check')
+parser.add_argument('--file', '-f', 
+                    type=file, 
+                    help='file containing S3 files to process')
+parser.add_argument('files', 
+                    help='S3 files to process', 
+                    nargs='*')
 
 args = parser.parse_args()
+
+if not args.files and not args.file:
+    parser.print_usage(sys.stderr)
+    fmt = '%s: error: S3 files (file or positional arguments) required\n'
+    sys.stderr.write(fmt % progname)
+    sys.exit(2)
+
+files = []
+if args.file:
+    files.extend([ line.rstrip('\n') for line in args.file ])
+if args.files:
+    files.extend(args.files)
+
+print 'connecting to database...'
 
 for var in ('DB_HOST', 'DB_SERVICE', 'DB_USER', 'DB_PASSWORD'):
     if var not in os.environ:
         sys.stderr.write('%s: %s not set\n' % (progname, var))
         sys.exit(1)
 
-print 'connecting to database...'
-
 dsn = cx_Oracle.makedsn(os.environ['DB_HOST'], 1521, os.environ['DB_SERVICE'])
 db = cx_Oracle.connect(os.environ['DB_USER'], os.environ['DB_PASSWORD'], dsn)
 
 c = db.cursor()
 
-if not args.weak_check:
+print 'reading imaging_qa01...'
 
-    print 'checking image03_id/image_file uniqueness...'
+c.execute("SELECT file_source FROM imaging_qa01")
+qa_done_files = [ row[0] for row in c ]
 
-    c.execute('SELECT COUNT(DISTINCT image03_id) FROM image03')
-    n_image03_ids = c.fetchone()[0]
-    print '    image03_ids: %d' % n_image03_ids
+print 'reading image03...'
 
-    c.execute('SELECT COUNT(DISTINCT image_file) FROM image03')
-    n_image_files = c.fetchone()[0]
-    print '    image_files: %d' % n_image_files
+scan_types = {}
+c.execute("SELECT DISTINCT image_file, scan_type FROM image03")
+for (image_file, scan_type) in c:
+    scan_types.setdefault(image_file, {})
+    try:
+        qa_type = qa_types[scan_type]
+    except KeyError:
+        qa_type = None
+    scan_types[image_file][scan_type] = qa_type
 
-    c.execute("""SELECT COUNT(*) 
-                   FROM (SELECT DISTINCT image03_id, image_file 
-                           FROM image03)""")
-    n_pairs = c.fetchone()[0]
-    print '    pairs: %d' % n_pairs
+c.close()
+db.close()
 
-    if n_image_files != n_image03_ids or n_pairs != n_image03_ids:
-        print 'ERROR'
-        sys.exit(1)
+print 'checking files...'
 
-    print 'checking extra column uniqueness...'
+error = False
 
-    for col in extra_cols:
-        query = """SELECT COUNT(*) 
-                     FROM (SELECT DISTINCT image03_id, image_file, %s 
-                             FROM image03)""" % col
-        c.execute(query)
-        n = c.fetchone()[0]
-        print '    %s: %d' % (col, n)
-        if n != n_image03_ids:
-            print 'ERROR'
-            sys.exit(1)
+qa_types = {}
+for f in files:
+    if f in qa_done_files:
+        print 'ERROR: %s is in imaging_qa01' % f
+        error = True
+        continue
+    try:
+        distinct_qa_types = set(scan_types[f].values())
+    except KeyError:
+        print 'ERROR: %s is not in image03' % f
+        error = True
+        continue
+    if len(distinct_qa_types) > 1:
+        print 'ERROR: multiple QA types for %s' % f
+        error = True
+    qa_type = distinct_qa_types.pop()
+    if not qa_type:
+        print 'ERROR: unset or unsupported scan type for %s' % f
+        error = True
+    qa_types[f] = qa_type
 
-else:
-
-    print 'checking image_file/scan_type uniqueness...'
-
-    c.execute('SELECT COUNT(DISTINCT image_file) FROM image03')
-    n_image_files = c.fetchone()[0]
-    print '    image_files: %d' % n_image_files
-
-    query = """SELECT COUNT(*) 
-                 FROM (SELECT DISTINCT image_file, scan_type 
-                         FROM image03)"""
-    c.execute(query)
-    n_pairs = c.fetchone()[0]
-    print '    image_file+scan_type: %d' % n_pairs
-
-    if n_pairs != n_image_files:
-        print 'ERROR'
-        sys.exit(1)
-
-if args.check_only:
-    print 'done checks'
-    sys.exit(0)
-
-query = """SELECT image_file, scan_type 
-             FROM image03 
-            WHERE image_file NOT IN (SELECT file_source 
-                                       FROM imaging_qa01) 
-              AND scan_type IS NOT NULL"""
-
-c.execute(query)
+if error:
+    sys.exit(1)
 
 if args.bogus:
     report = '    %s: %s (BOGUS): %s'
 else:
     report = '    %s: %s: %s'
 
-for (image_file, scan_type) in c:
+for f in files:
     print image_file
-    try:
-        qa_type = qa_types[scan_type]
-    except KeyError:
-        print '    %s: unsupported; skipping' % scan_type
-        continue
-    print '    %s: %s' % (scan_type, qa_type)
+    print '    %s' % qa_types[f]
     if qa_type == 'structural':
         cmd_args = ['qsub', '/ndar/bin/launch_structural_qa']
     if args.bogus:
         cmd_args.append('--bogus')
-    if args.weak_check:
-        cmd_args.append('--weak-check')
     cmd_args.append(image_file)
-    po = subprocess.Popen(cmd_args, 
-                          stdout=subprocess.PIPE, 
-                          stderr=subprocess.PIPE)
-    if po.wait() != 0:
-        print 'ERROR in qsub:'
-        print po.stderr.read()
-        sys.exit(1)
-    print report % (scan_type, qa_type, po.stdout.read().strip())
-
-c.close()
-db.close()
+#    po = subprocess.Popen(cmd_args, 
+#                          stdout=subprocess.PIPE, 
+#                          stderr=subprocess.PIPE)
+#    if po.wait() != 0:
+#        print 'ERROR in qsub:'
+#        print po.stderr.read()
+#        sys.exit(1)
+#    print report % (scan_type, qa_type, po.stdout.read().strip())
 
 sys.exit(0)
 
