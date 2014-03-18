@@ -22,23 +22,32 @@ parser.add_argument('--bogus', '-b',
 parser.add_argument('--file', '-f', 
                     type=file, 
                     help='file containing S3 files to process')
+parser.add_argument('--all', '-a', 
+                    action='store_true', 
+                    default=False, 
+                    help='queue all files')
+parser.add_argument('--check-only', '-c', 
+                    action='store_true', 
+                    default=False, 
+                    help='check only, don\'t actually queue')
 parser.add_argument('files', 
                     help='S3 files to process', 
                     nargs='*')
 
 args = parser.parse_args()
 
-if not args.files and not args.file:
-    parser.print_usage(sys.stderr)
-    fmt = '%s: error: S3 files (file or positional arguments) required\n'
-    sys.stderr.write(fmt % progname)
-    sys.exit(2)
-
-files = []
-if args.file:
-    files.extend([ line.rstrip('\n') for line in args.file ])
-if args.files:
-    files.extend(args.files)
+if args.all:
+    if args.files or args.file:
+        parser.print_usage(sys.stderr)
+        fmt = '%s: error: S3 files (file or positional arguments) given with --all\n'
+        sys.stderr.write(fmt % progname)
+        sys.exit(2)
+else:
+    if not args.files and not args.file:
+        parser.print_usage(sys.stderr)
+        fmt = '%s: error: S3 files (file or positional arguments) or --all required\n'
+        sys.stderr.write(fmt % progname)
+        sys.exit(2)
 
 print 'connecting to database...'
 
@@ -51,6 +60,28 @@ dsn = cx_Oracle.makedsn(os.environ['DB_HOST'], 1521, os.environ['DB_SERVICE'])
 db = cx_Oracle.connect(os.environ['DB_USER'], os.environ['DB_PASSWORD'], dsn)
 
 c = db.cursor()
+
+if args.all:
+    print 'getting files...'
+    files = set()
+    query = """SELECT DISTINCT image_file 
+                 FROM image03 
+                WHERE scan_type = :st 
+                  AND image_file NOT IN (SELECT file_source 
+                                           FROM imaging_qa01)"""
+    for scan_type in qa_types.keys():
+        c.execute(query, {'st': scan_type})
+        for row in c:
+            files.add(row[0])
+    files = list(files)
+else:
+    files = []
+    if args.file:
+        files.extend([ line.rstrip('\n') for line in args.file ])
+    if args.files:
+        files.extend(args.files)
+
+print '%d files to process' % len(files)
 
 print 'reading imaging_qa01...'
 
@@ -99,6 +130,10 @@ for f in files:
 
 if error:
     sys.exit(1)
+
+if args.check_only:
+    print 'done checks'
+    sys.exit(0)
 
 if args.bogus:
     report = '    %s (BOGUS): %s'
