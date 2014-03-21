@@ -145,8 +145,8 @@ query_params['subjectkey'] = args.subjectkey
 query_params['interview_age'] = args.interview_age
 query_params['image03_id'] = args.image03_id
 
+c = db.cursor()
 c.execute(query, query_params)
-
 c.close()
 
 db.commit()
