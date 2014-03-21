@@ -78,7 +78,8 @@ else
     cd $subj_id
 
     echo 'running first'
-    /usr/bin/time -v run_first_all -i anat -o first
+    fslreorient2std anat anat_r
+    /usr/bin/time -v run_first_all -i anat_r -o first
 
     echo 'running mri_segstats'
     mri_segstats --sum first.stats \
