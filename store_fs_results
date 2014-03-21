@@ -37,22 +37,11 @@ cols = {'Left-Lateral-Ventricle': 'left_lateral_ventricle',
         'Right-Cerebellum-White-Matter': 'right_cerebellum_wht_mtr', 
         '5th-Ventricle': 'fifth_ventricle'}
 
-# columns from image03
-image03_cols = ('image03_id', 
-                'subjectkey', 
-                'interview_age', 
-                'gender', 
-                'dataset_id')
-
 progname = os.path.basename(sys.argv[0])
 
 description = 'Store FreeSurfer results in an NDAR database.'
 parser = argparse.ArgumentParser(description=description)
 
-parser.add_argument('--bogus', 
-                    default=False, 
-                    action='store_true', 
-                    help='reporting a test run')
 parser.add_argument('--pipeline', 
                     required=True, 
                     choices=('NITRC', 'LONI'), 
@@ -60,6 +49,14 @@ parser.add_argument('--pipeline',
 parser.add_argument('--file-name', 
                     required=True, 
                     help='original file name (from image03)')
+parser.add_argument('--subjectkey', 
+                    required=True)
+parser.add_argument('--interview-age', 
+                    required=True, 
+                    type=int)
+parser.add_argument('--image03-id', 
+                    required=True, 
+                    type=int)
 parser.add_argument('aseg_stats_file', 
                     help='path to aseg.stats')
 
@@ -129,16 +126,11 @@ print 'updating database...'
 dsn = cx_Oracle.makedsn(os.environ['DB_HOST'], 1521, os.environ['DB_SERVICE'])
 db = cx_Oracle.connect(os.environ['DB_USER'], os.environ['DB_PASSWORD'], dsn)
 
-query = """SELECT %s 
-             FROM image03 
-            WHERE image_file = :image_file""" % ', '.join(image03_cols)
-c.execute(query)
-image03_vals = dict(zip(image03_cols, c.fetchone()))
-
-if args.bogus:
-    image03_vals['subjectkey'] = 'bogus%s' % image03_vals['subjectkey']
-
-query_cols = list(image03_cols)
+query_cols = ['file_name', 
+              'pipeline', 
+              'subjectkey', 
+              'interview_age', 
+              'image03_id']
 query_cols.extend(cols.itervalues())
 
 query = 'INSERT INTO freesurfer_structures '
@@ -147,9 +139,11 @@ query += 'VALUES '
 query += '(%s)' % ', '.join([':%s' % col for col in query_cols])
 
 query_params = dict(vols)
-query_params.update(image03_vals)
 query_params['file_name'] = args.file_name
 query_params['pipeline'] = args.pipeline
+query_params['subjectkey'] = args.subjectkey
+query_params['interview_age'] = args.interview_age
+query_params['image03_id'] = args.image03_id
 
 c.execute(query, query_params)
 
