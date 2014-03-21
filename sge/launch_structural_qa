@@ -15,8 +15,6 @@ clean_up()
 {
 
     echo 'cleaning up'
-echo 'not cleaning up'
-return 0
 
     if [ -z $working_dir ] ; then return 0 ; fi
 
