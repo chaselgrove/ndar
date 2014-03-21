@@ -159,7 +159,7 @@ for key in sources:
     print key
     image_file = sources[key]['image_files'].pop()
     print '    %s' % image_file
-    cmd_args = ['qsub', '/ndar/bin/launch_recon_all']
+    cmd_args = ['qsub', '/ndar/sge/launch_recon_all']
     if args.bogus:
         cmd_args.append('--bogus')
     cmd_args.append(key[0])

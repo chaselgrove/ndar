@@ -144,7 +144,7 @@ for f in files:
     print f
     qa_type = qa_types[f]
     if qa_type == 'structural':
-        cmd_args = ['qsub', '/ndar/bin/launch_structural_qa']
+        cmd_args = ['qsub', '/ndar/sge/launch_structural_qa']
     if args.bogus:
         cmd_args.append('--bogus')
     cmd_args.append(f)
