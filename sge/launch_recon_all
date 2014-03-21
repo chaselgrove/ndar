@@ -1,7 +1,7 @@
 #$ -V
 #$ -S /bin/bash
-#$ -o $HOME/logs/fs.$JOB_ID.stdout
-#$ -e $HOME/logs/fs.$JOB_ID.stderr
+#$ -o $HOME/logs/recon_all.$JOB_ID.stdout
+#$ -e $HOME/logs/recon_all.$JOB_ID.stderr
 
 if [ x"$1" = x"--bogus" ]
 then
