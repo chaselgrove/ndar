@@ -1,14 +1,14 @@
 #$ -V
 #$ -S /bin/bash
-#$ -o $HOME/logs/first.$JOB_ID.stdout
-#$ -e $HOME/logs/first.$JOB_ID.stderr
+#$ -o $HOME/logs/first_all.$JOB_ID.stdout
+#$ -e $HOME/logs/first_all.$JOB_ID.stderr
 
 if [ x"$1" = x"--bogus" ]
 then
     bogus_run=1
     shift
 else
-    bogus=
+    bogus_run=
 fi
 
 clean_up()
@@ -16,11 +16,10 @@ clean_up()
 
     echo 'cleaning up'
 
-    if [ -z $working_dir ] ; then return 0 ; fi
+    cd $first_rir
 
-    if [ ! -d $working_dir ] ; then return 0 ; fi
-
-    rm -r $working_dir
+    if [ -f ${subj_id}.zip ] ; then rm ${subj_id}.zip ; fi
+    if [ -d ${subj_id} ] ; then rm -r ${subj_id} ; fi
 
     return 0
 
@@ -30,89 +29,84 @@ trap clean_up EXIT
 
 set -e
 
-file_name=$1
-subjectkey=$2
-interview_age=$3
-image03_id=$4
+subjectkey="$1"
+interview_age="$2"
+image03_id="$3"
+image_file="$4"
+s3_base="$5"
+
+# strip trailing /
+s3_base=`echo "$s3_base" | sed 's+/*$++'`
+
+subj_id=${subjectkey}-${interview_age}-${image03_id}
 
 if [ $bogus_run ]
 then
-    subj_id=bogus-${subjectkey}-${interview_age}-${image03_id}
-else
-    subj_id=${subjectkey}-${interview_age}-${image03_id}
+    subj_id="bogus-$subj_id"
 fi
 
 cat << EOF
 
-starting launch_first_all
+starting launch_recon_all
 
 `date`
 
-file_name = $file_name
 subjectkey = $subjectkey
 interview_age = $interview_age
 image03_id = $image03_id
-
+image_file = $image_file
+s3_base = $s3_base
 subj_id = $subj_id
-
 bogus_run = $bogus_run
-
 instance ID = `GET http://169.254.169.254/latest/meta-data/instance-id`
 instance type = `GET http://169.254.169.254/latest/meta-data/instance-type`
 
 EOF
 
-working_dir=/scratch/ubuntu/$subj_id
-mkdir $working_dir
+first_dir=/scratch/ubuntu/subjects
+if [ ! -d $first_dir ] ; then mkdir $first_dir ; fi
 
-cd $working_dir
+cd $first_dir
 
 if [ $bogus_run ]
 then
-
     cp -rv /ndar/test_data/NDARYN002ECR $subj_id
-    cd $subj_id
-
 else
 
-    mkdir $subj_id
+    mkdir ${subj_id}
+    ndar_unpack -v ${subj_id}/anat.nii.gz $image_file
     cd $subj_id
 
-    ndar_unpack -v anat.nii.gz $file_name
-
-    echo 'starting first'
+    echo 'running first'
     /usr/bin/time -v run_first_all -i anat -o first
 
-    echo 'starting mri_segstats'
+    echo 'running mri_segstats'
     mri_segstats --sum first.stats \
                  --ctab $FREESURFER_HOME/FreeSurferColorLUT.txt \
                  --seg first_all_fast_firstseg.nii.gz
 
-fi
+    cd ..
 
-if [ $bogus_run ]
-then
-    db_sk=bogus$subjectkey
-else
-    db_sk=$subjectkey
 fi
-
-cd ..
 
 zip -r ${subj_id}.zip $subj_id
-aws s3 cp ${subj_id}.zip s3://NITRC_data/FIRST/${subj_id}.zip
+aws s3 cp ${subj_id}.zip $s3_base/${subj_id}.zip
 
 if [ $bogus_run ]
 then
-    store_first_results --bogus \
-                        --file-name $file_name \
-                        --pipeline NITRC \
-                        $subj_id $subj_id/first.stats
+    store_first_all_results --file-name bogus-$image_file \
+                            --pipeline NITRC \
+                            --subjectkey bogus-$subjectkey \
+                            --interview_age $interview_age \
+                            --image03_id $image03_id \
+                            $SUBJECTS_DIR/$subj_id/stats/aseg.stats
 else
-    store_first_results --bogus \
-                        --file-name $file_name \
-                        --pipeline NITRC \
-                        $subj_id $subj_id/first.stats
+    store_first_all_results --file-name $image_file \
+                            --pipeline NITRC \
+                            --subjectkey $subjectkey \
+                            --interview_age $interview_age \
+                            --image03_id $image03_id \
+                            $SUBJECTS_DIR/$subj_id/stats/aseg.stats
 fi
 
 clean_up

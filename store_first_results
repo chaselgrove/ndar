@@ -40,22 +40,11 @@ files = (['brain_stem_file', 'first-BrStem_first.vtk'],
          ['right_putamen_file', 'first-R_Puta_first.vtk'], 
          ['right_thalamus_proper_file', 'first-R_Thal_first.vtk'])
 
-# columns from image03
-image03_cols = ('image03_id', 
-                'subjectkey', 
-                'interview_age', 
-                'gender', 
-                'dataset_id')
-
 progname = os.path.basename(sys.argv[0])
 
 description = 'Store FIRST results in an NDAR database.'
 parser = argparse.ArgumentParser(description=description)
 
-parser.add_argument('--bogus', 
-                    default=False, 
-                    action='store_true', 
-                    help='reporting a test run')
 parser.add_argument('--pipeline', 
                     required=True, 
                     choices=('NITRC', 'LONI'), 
@@ -63,6 +52,14 @@ parser.add_argument('--pipeline',
 parser.add_argument('--file-name', 
                     required=True, 
                     help='original file name (from image03)')
+parser.add_argument('--subjectkey', 
+                    required=True)
+parser.add_argument('--interview-age', 
+                    required=True, 
+                    type=int)
+parser.add_argument('--image03-id', 
+                    required=True, 
+                    type=int)
 parser.add_argument('first_dir', 
                     help='path to FIRST directory')
 
@@ -76,6 +73,8 @@ for var in ('DB_HOST', 'DB_SERVICE', 'DB_USER', 'DB_PASSWORD'):
 if not os.path.isdir(args.first_dir):
     sys.stderr.write('%s: %s: not a directory\n' % (progname, args.first_dir))
     sys.exit(1)
+
+stats_file = os.path.join(args.first_dir, 'first.stats')
 
 missing_files = []
 for i in xrange(len(files)):
@@ -113,7 +112,7 @@ for (line_no, line) in enumerate(fo):
         row = line.split()
         if not headers:
             fmt = '%s: data before ColHeaders on line %d of %s\n'
-            sys.stderr.write(fmt % (progname, line_no+1, args.first_stats_file))
+            sys.stderr.write(fmt % (progname, line_no+1, stats_file))
             sys.exit(1)
         row_dict = dict(zip(headers, row))
         try:
@@ -124,7 +123,7 @@ for (line_no, line) in enumerate(fo):
             vol = float(row_dict['Volume_mm3'])
         except ValueError:
             fmt = '%s: bad volume on line %d of %s\n'
-            sys.stderr.write(fmt % (progname, line_no+1, args.first_stats_file))
+            sys.stderr.write(fmt % (progname, line_no+1, stats_file))
             sys.exit(1)
         vols[col] = vol
 
@@ -135,10 +134,10 @@ for (fs, col) in cols.iteritems():
         vols[col] = None
 if len(missing_structures) == len(cols):
     fmt = '%s: no structures of interest found in %s\n'
-    sys.stderr.write(fmt % (progname, args.first_stats_file))
+    sys.stderr.write(fmt % (progname, stats_file))
     sys.exit(1)
 if missing_structures:
-    print 'WARNING: not found in %s:' % args.first_stats_file
+    print 'WARNING: not found in %s:' % stats_file
     for s in missing_structures:
         print '    %s' % s
 
@@ -151,16 +150,11 @@ db = cx_Oracle.connect(os.environ['DB_USER'], os.environ['DB_PASSWORD'], dsn)
 
 c = db.cursor()
 
-query = """SELECT %s 
-             FROM image03 
-            WHERE image_file = :image_file""" % ', '.join(image03_cols)
-c.execute(query)
-image03_vals = dict(zip(image03_cols, c.fetchone()))
-
-if args.bogus:
-    image03_vals['subjectkey'] = 'bogus%s' % image03_vals['subjectkey']
-
-query_cols = list(image03_cols)
+query_cols = ['file_name', 
+              'pipeline', 
+              'subjectkey', 
+              'interview_age', 
+              'image03_id']
 query_cols.extend(cols.itervalues())
 query_cols.extend([ el[0] for el in files ])
 
@@ -170,9 +164,11 @@ query += 'VALUES '
 query += '(%s)' % ', '.join([':%s' % col for col in query_cols])
 
 query_params = dict(vols)
-query_params.update(image03_vals)
 query_params['file_name'] = args.file_name
 query_params['pipeline'] = args.pipeline
+query_params['subjectkey'] = args.subjectkey
+query_params['interview_age'] = args.interview_age
+query_params['image03_id'] = args.image03_id
 
 for (col, fname) in files:
     query_params[col] = fname
