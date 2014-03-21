@@ -97,15 +97,15 @@ then
     store_first_all_results --file-name bogus-$image_file \
                             --pipeline NITRC \
                             --subjectkey bogus-$subjectkey \
-                            --interview_age $interview_age \
-                            --image03_id $image03_id \
+                            --interview-age $interview_age \
+                            --image03-id $image03_id \
                             $SUBJECTS_DIR/$subj_id/stats/aseg.stats
 else
     store_first_all_results --file-name $image_file \
                             --pipeline NITRC \
                             --subjectkey $subjectkey \
-                            --interview_age $interview_age \
-                            --image03_id $image03_id \
+                            --interview-age $interview_age \
+                            --image03-id $image03_id \
                             $SUBJECTS_DIR/$subj_id/stats/aseg.stats
 fi
 
