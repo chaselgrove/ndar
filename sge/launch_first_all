@@ -16,7 +16,7 @@ clean_up()
 
     echo 'cleaning up'
 
-    cd $first_rir
+    cd $first_dir
 
     if [ -f ${subj_id}.zip ] ; then rm ${subj_id}.zip ; fi
     if [ -d ${subj_id} ] ; then rm -r ${subj_id} ; fi
@@ -63,7 +63,7 @@ instance type = `GET http://169.254.169.254/latest/meta-data/instance-type`
 
 EOF
 
-first_dir=/scratch/ubuntu/subjects
+first_dir=/scratch/ubuntu/first
 if [ ! -d $first_dir ] ; then mkdir $first_dir ; fi
 
 cd $first_dir
