@@ -60,14 +60,14 @@ then
 
 else
 
-    ndar_unpack -v anat.nii.gz $file_name
-
     echo 'starting structural QA'
-    /usr/bin/time -v run_structural_qa .
+    /usr/bin/time -v run_structural_qa $file_name .
 
     store_structural_qa --file-name $file_name .
 
 fi
+
+cd
 
 clean_up
 trap '' EXIT
