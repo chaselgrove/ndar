@@ -66,8 +66,9 @@ except Exception, data:
     sys.stderr.write('%s: %s\n' % (progname, str(data)))
     sys.exit(1)
 
-query_cols = ['file_source']
-query_params = {'file_source': args.file_name}
+query_cols = ['file_source', 'snr']
+query_params = {'file_source': args.file_name, 
+                'snr': snr}
 
 for c in classes:
     for val_type in vals[c]:
