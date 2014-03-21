@@ -1,0 +1,184 @@
+#!/usr/bin/python
+
+import sys
+import os
+import argparse
+import subprocess
+import boto.s3.connection
+import cx_Oracle
+
+allowed_scan_types = ('MR structural (MPRAGE)', 
+                      'MR structural (T1)', 
+                      'MR structural (FSPGR)')
+
+progname = os.path.basename(sys.argv[0])
+
+description = 'Queue FIRST runs.'
+parser = argparse.ArgumentParser(description=description)
+
+parser.add_argument('--bogus', '-b', 
+                    action='store_true', 
+                    default=False, 
+                    help='queue bogus structural runs')
+parser.add_argument('--check-only', '-c', 
+                    action='store_true', 
+                    default=False, 
+                    help='check database entries only (don\'t queue runs)')
+parser.add_argument('-n', 
+                    type=int, 
+                    help='number of scans to queue')
+parser.add_argument('s3_base', 
+                    help='base of S3 location for uploading data')
+
+args = parser.parse_args()
+
+if args.n is not None and args.n <= 0:
+    parser.print_usage(sys.stderr)
+    sys.stderr.write('%s: error: n must be positive\n' % progname)
+    sys.exit(2)
+
+print 'checking S3 base...'
+
+if not args.s3_base.startswith('s3://'):
+    parser.print_usage(sys.stderr)
+    sys.stderr.write('%s: error: bad S3 base location\n' % progname)
+    sys.exit(2)
+
+for var in ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'):
+    if var not in os.environ:
+        sys.stderr.write('%s: %s not set\n' % (progname, var))
+        sys.exit(1)
+
+try:
+    calling_format = boto.s3.connection.OrdinaryCallingFormat()
+    s3 = boto.s3.connection.S3Connection(os.environ['AWS_ACCESS_KEY_ID'], 
+                                         os.environ['AWS_SECRET_ACCESS_KEY'], 
+                                         calling_format=calling_format)
+    parts = args.s3_base[5:].rstrip('/').split('/')
+    bucket_name = parts[0]
+    bucket = s3.get_bucket(bucket_name)
+    print bucket.lookup('/FIRST')
+    s3.close()
+except boto.exception.S3ResponseError, data:
+    sys.stderr.write('%s: %s\n' % (progname, data.error_message))
+    sys.exit(1)
+
+print 'connecting to database...'
+
+for var in ('DB_HOST', 'DB_SERVICE', 'DB_USER', 'DB_PASSWORD'):
+    if var not in os.environ:
+        sys.stderr.write('%s: %s not set\n' % (progname, var))
+        sys.exit(1)
+
+dsn = cx_Oracle.makedsn(os.environ['DB_HOST'], 1521, os.environ['DB_SERVICE'])
+db = cx_Oracle.connect(os.environ['DB_USER'], os.environ['DB_PASSWORD'], dsn)
+
+c = db.cursor()
+
+print 'getting completed runs...'
+
+completed_keys = set()
+
+query = """SELECT subjectkey, interview_age, image03_id 
+             FROM first_structures"""
+c.execute(query)
+for row in c:
+    completed_keys.add(tuple(row))
+
+print '%d completed runs' % len(completed_keys)
+
+print 'getting source data...'
+
+sources = {}
+
+query = """SELECT subjectkey, 
+                  interview_age, 
+                  image03_id, 
+                  image_file, 
+                  scan_type 
+             FROM image03"""
+c.execute(query)
+for row in c:
+    key = tuple(row[:3])
+    image_file = row[3]
+    scan_type = row[4]
+    sources.setdefault(key, {'image_files': set(), 
+                             'have_structural': False, 
+                             'have_other': False})
+    sources[key]['image_files'].add(image_file)
+    if scan_type in allowed_scan_types:
+        sources[key]['have_structural'] = True
+    else:
+        sources[key]['have_other'] = True
+
+c.close()
+db.close()
+
+print '%d scans to consider' % len(sources)
+
+print 'checking data...'
+
+keys = sources.keys()
+
+for key in keys:
+    if key in completed_keys:
+        # this isn't an error, so drop this data silently
+        del sources[key]
+        continue
+    if len(sources[key]['image_files']) > 1:
+        print '%s has multiple image files' % str(key)
+        del sources[key]
+        continue
+    if sources[key]['have_structural'] and sources[key]['have_other']:
+        print '%s has multiple scan types' % str(key)
+        del sources[key]
+        continue
+    if not sources[key]['have_structural']:
+        # this isn't an error, so drop this data silently
+        del sources[key]
+        continue
+
+print '%d scans to queue' % len(sources)
+
+if args.check_only:
+    print 'done checks'
+    sys.exit(0)
+
+if args.n is not None:
+    if args.n >= len(sources):
+        print 'requested %d scans; %d available' % (args.n, len(sources))
+    else:
+        print 'selecting %d scans' % args.n
+        all_keys = sources.keys()
+        keep_keys = all_keys[:args.n]
+        for k in all_keys:
+            if k not in keep_keys:
+                del sources[k]
+
+for key in sources:
+    print key
+    image_file = sources[key]['image_files'].pop()
+    print '    %s' % image_file
+    cmd_args = ['qsub', '/ndar/bin/launch_first_all']
+    if args.bogus:
+        cmd_args.append('--bogus')
+    cmd_args.append(key[0])
+    cmd_args.append(str(key[1]))
+    cmd_args.append(str(key[2]))
+    cmd_args.append(image_file)
+    cmd_args.append(args.s3_base)
+    po = subprocess.Popen(cmd_args, 
+                          stdout=subprocess.PIPE, 
+                          stderr=subprocess.PIPE)
+    if po.wait() != 0:
+        print 'ERROR in qsub:'
+        print po.stderr.read()
+        sys.exit(1)
+    if args.bogus:
+        print '    BOGUS: %s' % po.stdout.read().strip()
+    else:
+        print '    %s' % po.stdout.read().strip()
+
+sys.exit(0)
+
+# eof
