@@ -15,10 +15,6 @@ parser = argparse.ArgumentParser(description=description)
 parser.add_argument('--file-name', 
                     required=True, 
                     help='original file name (from image03)')
-parser.add_argument('--bogus', 
-                    default=False, 
-                    action='store_true', 
-                    help='reporting a test run')
 parser.add_argument('qa_dir', 
                     help='path to QA directory')
 
@@ -71,11 +67,7 @@ except Exception, data:
     sys.exit(1)
 
 query_cols = ['file_source']
-
-if args.bogus:
-    query_params = {'file_source': 'bogus-%s' % args.file_name}
-else:
-    query_params = {'file_source': args.file_name}
+query_params = {'file_source': args.file_name}
 
 for c in classes:
     for val_type in vals[c]:

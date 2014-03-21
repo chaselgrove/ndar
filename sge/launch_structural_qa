@@ -15,6 +15,8 @@ clean_up()
 {
 
     echo 'cleaning up'
+echo 'not cleaning up'
+return 0
 
     if [ -z $working_dir ] ; then return 0 ; fi
 
@@ -56,19 +58,14 @@ then
 
     cp -rv /ndar/test_data/structural_qa/* .
 
-    store_structural_qa --bogus --file-name $file_name .
+    store_structural_qa --file-name bogus-$file_name .
 
 else
 
     ndar_unpack -v anat.nii.gz $file_name
 
-    echo 'starting first'
-    /usr/bin/time -v run_first_all -i anat -o first
-
-    echo 'starting mri_segstats'
-    mri_segstats --sum first.stats \
-                 --ctab $FREESURFER_HOME/FreeSurferColorLUT.txt \
-                 --seg first_all_fast_firstseg.nii.gz
+    echo 'starting structural QA'
+    /usr/bin/time -v run_structural_qa .
 
     store_structural_qa --file-name $file_name .
 
