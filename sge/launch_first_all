@@ -99,14 +99,14 @@ then
                             --subjectkey bogus-$subjectkey \
                             --interview-age $interview_age \
                             --image03-id $image03_id \
-                            $SUBJECTS_DIR/$subj_id/stats/aseg.stats
+                            $subj_id
 else
     store_first_all_results --file-name $image_file \
                             --pipeline NITRC \
                             --subjectkey $subjectkey \
                             --interview-age $interview_age \
                             --image03-id $image03_id \
-                            $SUBJECTS_DIR/$subj_id/stats/aseg.stats
+                            $subj_id
 fi
 
 clean_up
