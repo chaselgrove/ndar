@@ -72,7 +72,7 @@ then
     cp -rv $FREESURFER_HOME/subjects/bert $SUBJECTS_DIR/$subj_id
 else
     ndar_unpack -v $SUBJECTS_DIR/${subj_id}.nii.gz $image_file
-    /usr/bin/time -v recon_all \
+    /usr/bin/time -v recon-all \
                   -all \
                   -subjid $subj_id \
                   -i $SUBJECTS_DIR/${subj_id}.nii.gz
