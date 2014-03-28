@@ -14,10 +14,11 @@ import tempfile
 import shutil
 import distutils.dir_util
 import zipfile
+import gzip
+import struct
 import json
 import dicom
 import boto.s3.connection
-import nibabel
 
 description = """
 
@@ -87,6 +88,16 @@ image03_fields = ('subjectkey', 'src_subject_id', 'interview_date',
                   'pet_tracer', 'time_diff_inject_to_image', 'pulse_seq', 
                   'slice_acquisition', 'software_preproc', 'experiment_id', 
                   'scan_type', 'data_file2', 'data_file2_type')
+
+# order matters; see NIfTI_1.__init__()
+nifti_units_xyz = (('Meters', 1), 
+                   ('Millimeters', 2), 
+                   ('Micrometers', 3))
+
+# order matters; see NIfTI_1.__init__()
+nifti_units_t = (('Seconds', 8), 
+                 ('Milliseconds', 16), 
+                 ('Microseconds', 24))
 
 def convert_dicom_time(val):
     return str(float(val)/1000.0)
@@ -181,6 +192,58 @@ class GeneralError(BaseError):
 # classes
 #
 
+class NIfTI_1:
+
+    """NIfTI-1 volume"""
+
+    def __init__(self, fname):
+
+        # read the header and check its length and the magic string
+        if fname.endswith('.gz'):
+            header_bytes = gzip.open(fname).read(348)
+        else:
+            header_bytes = open(fname).read(348)
+        if len(header_bytes) < 348:
+            raise ValueError('header too short in NIfTI-1 file')
+        self.magic = header_bytes[344:]
+        if self.magic != 'n+1\0':
+            raise ValueError('bad magic string in NIfTI-1 file')
+
+        # determine the byte ordering
+        bo = '<'
+        dim0 = struct.unpack('<h', header_bytes[40:42])[0]
+        if dim0 < 1 or dim0 > 7:
+            bo = '>'
+            dim0 = struct.unpack('>h', header_bytes[40:42])[0]
+            if dim0 < 1 or dim0 > 7:
+                raise ValueError('couldn\'t determine byte ordering')
+        self.sizeof_hdr = struct.unpack('%si' % bo, header_bytes[:4])[0]
+        if self.sizeof_hdr != 348:
+            raise ValueError('couldn\'t determine byte ordering')
+
+        # unpack the header
+        self.dim = struct.unpack('%s8h' % bo, header_bytes[40:56])
+        self.datatype = struct.unpack('%sh' % bo, header_bytes[70:72])[0]
+        self.bitpix = struct.unpack('%sh' % bo, header_bytes[72:74])[0]
+        self.pixdim = struct.unpack('%s8f' % bo, header_bytes[76:108])
+        self.vox_offset = struct.unpack('%sf' % bo, header_bytes[108:112])[0]
+        self.xyzt_units = struct.unpack('%sB' % bo, header_bytes[123:124])[0]
+
+        # order matters here; xyzt_units = 3 will match both Meters (1) and 
+        # Micrometers (3), so we go from less to more specific
+        self.xyz_units = None
+        for (name, value) in nifti_units_xyz:
+            if self.xyzt_units & value == value:
+                self.xyz_units = name
+
+        # again, order matters and we go from less to more specific
+        self.t_units = None
+        for (name, value) in nifti_units_t:
+            if self.xyzt_units & value == value:
+                self.t_units = name
+
+        return
+
 class BaseData:
 
     """base class for data handling classes
@@ -223,39 +286,23 @@ class BaseData:
 
         this also initializes _image03 with the known fields
         """
+
         self._image03 = {}
         for field in image03_fields:
             self._image03[field] = None
-        vol = nibabel.load(self.nii_gz())
-        try:
-            (xyz_units, t_units) = vol.get_header().get_xyzt_units()
-        except:
-            (xyz_units, t_units) = (None, None)
-        if xyz_units == 'mm':
-            xyz_units = 'Millimeters'
-        elif xyz_units == 'm':
-            xyz_units = 'Meters'
-        elif xyz_units == 'um':
-            xyz_units = 'Micrometers'
-        else:
-            xyz_units = None
-        if t_units == 's':
-            t_units = 'Seconds'
-        elif t_units == 'ms':
-            t_unit = 'Milliseconds'
-        elif t_units == 'ms':
-            t_unit = 'Microseconds'
-        else:
-            t_unit = None
-        self.image_num_dimensions = len(vol.shape)
-        pixdim = vol.get_header()['pixdim']
-        for i in xrange(self.image_num_dimensions):
-            self._image03['image_extent%d' % (i+1)] = vol.shape[i]
-            self._image03['image_resolution%d' % (i+1)] = float(pixdim[i+1])
-            if i < 3 and xyz_units:
-                self._image03['image_unit%d' % (i+1)] = xyz_units
-            if i == 3 and t_units:
-                self._image03['image_unit4'] = t_unit
+
+        vol = NIfTI_1(self.nii_gz())
+
+        self._image03['image_num_dimensions'] = vol.dim[0]
+
+        for i in xrange(1, vol.dim[0]+1):
+            self._image03['image_extent%d' % i] = vol.dim[i]
+            self._image03['image_resolution%d' % i] = vol.pixdim[i]
+            if i < 4 and vol.xyz_units:
+                self._image03['image_unit%d' % i] = vol.xyz_units
+            if i == 4 and vol.t_units:
+                self._image03['image_unit4'] = vol.t_units
+
         return self._image03
 
     def stdout_fname(self):
