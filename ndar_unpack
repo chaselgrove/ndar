@@ -921,7 +921,8 @@ try:
        and not args.image03 \
        and not args.header \
        and not args.download_dir \
-       and not args.unpack_dir:
+       and not args.unpack_dir \
+       and not args.contents:
         if not data:
             data = find_data_handler(tempdir)
         message(NOTICE, 'data okay')
