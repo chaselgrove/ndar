@@ -20,6 +20,15 @@ import json
 import dicom
 import boto.s3.connection
 
+# import nibabel if possible
+# and since we're just using nibabel for MINC2, consider the import 
+# unsuccessful if nibabel.Minc2Image doesn't exist
+try:
+    import nibabel
+    nibabel.Minc2Image
+except:
+    nibabel = None
+
 description = """
 
 ndar_unpack checks, describes, and unpacks imaging data from NDAR.
@@ -145,7 +154,12 @@ def find_data_handler(tempdir):
 
     message(NOTICE, 'inspecting data...')
     data = None
-    for data_class in (NIfTIGzData, NIfTIData, AFNIData, MINCData, DICOMData):
+    for data_class in (NIfTIGzData, 
+                       NIfTIData, 
+                       AFNIData, 
+                       MINCData, 
+                       MINC2Data, 
+                       DICOMData):
         try:
             message(DEBUG, 'trying %s' % str(data_class))
             data = data_class(tempdir)
@@ -467,6 +481,10 @@ class MINCData(BaseData):
             raise TypeError('too many files')
         if not self.contents[0].endswith('.mnc'):
             raise TypeError('bad extension')
+        # since both MINC and MINC2 use .mnc, we also check the NetCDF magic 
+        # number here
+        if open(self.contents[0]).read(3) != 'CDF':
+            raise TypeError('bad magic number')
         rv = self.call(['mri_convert', '-ro', self.contents[0]])
         if rv:
             raise DataError('could not read .mnc')
@@ -489,6 +507,54 @@ class MINCData(BaseData):
     def header(self):
         self.check_call(['mincheader', self.contents[0]])
         return open(self.stdout_fname()).read()
+
+class MINC2Data(BaseData):
+
+    def __init__(self, tempdir):
+        BaseData.__init__(self, tempdir)
+        if not nibabel:
+            raise TypeError('MINC2 unsupported')
+        if not self.contents:
+            raise TypeError('no files')
+        if len(self.contents) > 1:
+            raise TypeError('too many files')
+        if not self.contents[0].endswith('.mnc'):
+            raise TypeError('bad extension')
+        try:
+            self.im = nibabel.load(self.contents[0])
+        except:
+            raise TypeError('could not read .mnc')
+        if not isinstance(self.im, nibabel.Minc2Image):
+            raise TypeError('not MINC2')
+        return
+
+    @property
+    def image03(self):
+        if self._image03:
+            return self._image03
+        self._image03_from_nifti()
+        self._image03['image_file_format'] = 'MINC'
+        return self._image03
+
+    def nii_gz(self, path=None):
+        if not path:
+            path = os.path.join(self.tempdir, 'volume.nii.gz')
+        nibabel.save(self.im, path)
+        return path
+
+    def header(self):
+        data = 'data_layout: %s\n' % self.im.header.data_layout
+        data += 'default_x_flip: %s\n' % self.im.header.default_x_flip
+        data += 'dtype: %s\n' % str(self.im.header.get_data_dtype())
+        data += 'shape: %s\n' % str(self.im.header.get_data_shape())
+        data += 'zooms: %s\n' % str(self.im.header.get_zooms())
+        data += 'base affine:\n'
+        data += str(self.im.header.get_base_affine())
+        data += '\n'
+        data += 'best affine:\n'
+        data += str(self.im.header.get_best_affine())
+        data += '\n'
+        return data
 
 class DICOMData(BaseData):
 
@@ -649,6 +715,11 @@ if args.self_check_flag:
             ev = 1
         else:
             message(NOTICE, '%s okay' % pn)
+    if not nibabel:
+        message(NOTICE, 'nibabel.Minc2Image not found: MINC2 reading will fail')
+        ev = 1
+    else:
+        message(NOTICE, 'nibabel.Minc2Image okay')
     sys.exit(ev)
 
 # we allow --self-check to override the need for a positional argument, so 
