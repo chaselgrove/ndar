@@ -2,6 +2,7 @@
 #$ -S /bin/bash
 #$ -o $HOME/logs/structural_qa.$JOB_ID.stdout
 #$ -e $HOME/logs/structural_qa.$JOB_ID.stderr
+#$ -l s_rt=0:30:00
 
 if [ x"$1" = x"--bogus" ]
 then
@@ -26,7 +27,17 @@ clean_up()
 
 } # end clean_up()
 
+time_out()
+{
+
+    echo 'soft time limit reached; exiting'
+
+    exit 3
+
+} # end time_out()
+
 trap clean_up EXIT
+trap time_out USR1
 
 set -e
 
