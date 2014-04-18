@@ -29,6 +29,12 @@ try:
 except:
     nibabel = None
 
+# SimpleITK for NRRD support
+try:
+    import SimpleITK
+except:
+    SimpleITK = None
+
 description = """
 
 ndar_unpack checks, describes, and unpacks imaging data from NDAR.
@@ -159,6 +165,7 @@ def find_data_handler(tempdir):
                        AFNIData, 
                        MINCData, 
                        MINC2Data, 
+                       NRRDData, 
                        DICOMData):
         try:
             message(DEBUG, 'trying %s' % str(data_class))
@@ -556,6 +563,51 @@ class MINC2Data(BaseData):
         data += '\n'
         return data
 
+class NRRDData(BaseData):
+
+    def __init__(self, tempdir):
+        BaseData.__init__(self, tempdir)
+        if not SimpleITK:
+            raise TypeError('NRRD unsupported')
+        if not self.contents:
+            raise TypeError('no files')
+        if len(self.contents) > 1:
+            raise TypeError('too many files')
+        if not self.contents[0].endswith('.nrrd'):
+            raise TypeError('bad extension')
+        try:
+            self.im = SimpleITK.ReadImage(self.contents[0])
+        except:
+            raise TypeError('could not read .nrrd')
+        return
+
+    @property
+    def image03(self):
+        if self._image03:
+            return self._image03
+        self._image03_from_nifti()
+        self._image03['image_file_format'] = 'MINC'
+        return self._image03
+
+    def nii_gz(self, path=None):
+        if not path:
+            path = os.path.join(self.tempdir, 'volume.nii.gz')
+        SimpleITK.WriteImage(self.im, path)
+        return path
+
+    def header(self):
+        data = 'dimension: %s\n' % str(self.im.GetDimension())
+        data += 'size: %s\n' % str(self.im.GetSize())
+        data += 'spacing: %s\n' % str(self.im.GetSpacing())
+        data += 'origin: %s\n' % str(self.im.GetOrigin())
+        data += 'direction: %s\n' % str(self.im.GetDirection())
+        cpp = str(self.im.GetNumberOfComponentsPerPixel())
+        data += 'components per pixel: %s\n' % cpp
+        data += 'metadata:\n'
+        for key in self.im.GetMetaDataKeys():
+            data += '    %s = %s\n' % (key, str(self.im.GetMetaData(key)))
+        return data
+
 class DICOMData(BaseData):
 
     def __init__(self, tempdir):
@@ -720,6 +772,11 @@ if args.self_check_flag:
         ev = 1
     else:
         message(NOTICE, 'nibabel.Minc2Image okay')
+    if not SimpleITK:
+        message(NOTICE, 'SimpleITK not found: NRRD reading will fail')
+        ev = 1
+    else:
+        message(NOTICE, 'SimpleITK okay')
     sys.exit(ev)
 
 # we allow --self-check to override the need for a positional argument, so 
