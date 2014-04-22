@@ -1,0 +1,5 @@
+include README.rst
+include COPYING
+include store_first_all_results
+include store_recon_all_results
+include store_structural_qa
