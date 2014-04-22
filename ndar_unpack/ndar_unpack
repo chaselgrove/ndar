@@ -1,7 +1,6 @@
 #!/usr/bin/python
 
-# See file COPYING distributed with the this code for the copyright
-# and license.
+# See file COPYING distributed with ndar_unpack for copyright and license.
 
 import sys
 import os

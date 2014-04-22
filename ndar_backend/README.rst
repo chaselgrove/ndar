@@ -1,3 +1,5 @@
+.. See file COPYING distributed with ndar-backend for copyright and license.
+
 Back-end tools for NDAR.
 
 This package contains the following scripts:

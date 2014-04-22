@@ -1,3 +1,5 @@
+.. See file COPYING distributed with ndar_unpack for copyright and license.
+
 ndar_unpack will download and unpack imaging data from NDAR.
 
 Examples:

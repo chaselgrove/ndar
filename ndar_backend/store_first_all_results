@@ -1,5 +1,7 @@
 #!/usr/bin/python
 
+# See file COPYING distributed with ndar-backend for copyright and license.
+
 import sys
 import os
 import argparse
