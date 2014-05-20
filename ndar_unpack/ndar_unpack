@@ -19,6 +19,8 @@ import json
 import dicom
 import boto.s3.connection
 
+version = 'ndar_unpack 0.1.2'
+
 # import nibabel if possible
 # and since we're just using nibabel for MINC2, consider the import 
 # unsuccessful if nibabel.Minc2Image doesn't exist
@@ -380,7 +382,7 @@ class NIfTIGzData(BaseData):
             raise TypeError('too many files')
         if not self.contents[0].endswith('.nii.gz'):
             raise TypeError('bad extension')
-        rv = self.call(['mri_convert', '-ro', '-ii', self.contents[0]])
+        rv = self.call(['mri_convert', '-ro', self.contents[0]])
         if rv:
             raise DataError('could not read .nii.gz')
         return
@@ -414,7 +416,7 @@ class NIfTIData(BaseData):
             raise TypeError('too many files')
         if not self.contents[0].endswith('.nii'):
             raise TypeError('bad extension')
-        rv = self.call(['mri_convert', '-ro', '-ii', self.contents[0]])
+        rv = self.call(['mri_convert', '-ro', self.contents[0]])
         if rv:
             raise DataError('could not read .nii')
         return
@@ -455,7 +457,7 @@ class AFNIData(BaseData):
         self.brik = '%sBRIK' % base
         if self.head not in self.contents or self.brik not in self.contents:
             raise TypeError('not a HEAD/BRIK pair')
-        rv = self.call(['mri_convert', '-ro', '-ii', self.brik])
+        rv = self.call(['mri_convert', '-ro', self.brik])
         if rv:
             raise DataError('could not read .BRIK')
         return
@@ -491,7 +493,7 @@ class MINCData(BaseData):
         # number here
         if open(self.contents[0]).read(3) != 'CDF':
             raise TypeError('bad magic number')
-        rv = self.call(['mri_convert', '-ro', '-ii', self.contents[0]])
+        rv = self.call(['mri_convert', '-ro', self.contents[0]])
         if rv:
             raise DataError('could not read .mnc')
         return
@@ -693,6 +695,11 @@ parser.add_argument('--self-check', '-S',
                     dest='self_check_flag', 
                     action='store_true', 
                     help='run self check')
+parser.add_argument('--version', 
+                    default=False, 
+                    dest='version_flag', 
+                    action='store_true', 
+                    help='print version and exit')
 parser.add_argument('--download', '-d', 
                     dest='download_dir', 
                     metavar='<directory>', 
@@ -749,6 +756,10 @@ elif args.quiet:
     else:
         output_level = SILENT
 
+if args.version_flag:
+    print version
+    sys.exit(0)
+
 if args.self_check_flag:
     dev_null = open('/dev/null', 'w')
     ev = 0
@@ -778,8 +789,9 @@ if args.self_check_flag:
         message(NOTICE, 'SimpleITK okay')
     sys.exit(ev)
 
-# we allow --self-check to override the need for a positional argument, so 
-# we have to check for that explicitly here
+# we allow --self-check and --version to override the need for a positional 
+# argument; since we can't have argparse require the argument, we have to 
+# check for that explicitly here
 if args.input is None:
     parser.print_usage(sys.stderr)
     msg = '%s: error: too few arguments\n' % os.path.basename(sys.argv[0])

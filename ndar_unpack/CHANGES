@@ -9,3 +9,10 @@ https://github.com/chaselgrove/ndar/tree/master/ndar_unpack
 
     Covering for mri_convert bug where mri_convert -ro fails but 
     mri_convert -ro -ii succeeds.
+
+0.1.2 -- 20 May 2014
+
+    Adding --version flag.
+
+    Removing version 0.1.1 mri_convert cover, which was actually due to 
+    bad test data.

@@ -5,7 +5,7 @@ from distutils.core import setup
 long_description = open('README.rst').read()
 
 setup(name='ndar_unpack', 
-      version='0.1.1', 
+      version='0.1.2', 
       description='A script for checking and unpacking NDAR image data', 
       author='Christian Haselgrove', 
       author_email='christian.haselgrove@umassmed.edu', 
