@@ -1,0 +1,11 @@
+Change log for ndar_unpack
+https://github.com/chaselgrove/ndar/tree/master/ndar_unpack
+
+0.1.0 -- 22 April 2014
+
+    Initial version.
+
+0.1.1 -- 20 May 2014
+
+    Covering for mri_convert bug where mri_convert -ro fails but 
+    mri_convert -ro -ii succeeds.
