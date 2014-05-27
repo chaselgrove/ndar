@@ -15,6 +15,7 @@ fi
 clean_up()
 {
 
+return 0
     echo 'cleaning up'
 
     if [ -z $working_dir ] ; then return 0 ; fi
@@ -80,10 +81,15 @@ cd $working_dir
 if [ $bogus_run ]
 then
 
-    :
-#    cp -rv /ndar/test_data/time_series_qa/* .
+    cp -rv /ndar/test_data/time_series_qa $subj_id
 
-#    store_structural_qa --file-name bogus-$file_name .
+    zip -r ${subj_id}.zip $subj_id
+    aws s3 cp ${subj_id}.zip $s3_base/${subj_id}.zip
+
+    store_time_series_qa --file-name bogus-$image_file \
+                         --subjectkey bogus-$subjectkey \
+                         --interview-age $interview_age \
+                         --image03-id $image03_id
 
 else
 
@@ -91,10 +97,16 @@ else
 
     ndar_unpack $image_file -v data.nii.gz
     analyze2bxh --xcede data.nii.gz data.xcede
-    fmriqa_generate.pl --verbose data.xcede $subj_id
+    /usr/bin/time -v fmriqa_generate.pl --verbose data.xcede $subj_id
+    cp data.xcede $subj_id
 
+    zip -r ${subj_id}.zip $subj_id
+    aws s3 cp ${subj_id}.zip $s3_base/${subj_id}.zip
 
-#    store_structural_qa --file-name $file_name .
+    store_time_series_qa --file-name bogus-$image_file \
+                         --subjectkey bogus-$subjectkey \
+                         --interview-age $interview_age \
+                         --image03-id $image03_id
 
 fi
 
