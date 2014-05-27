@@ -8,7 +8,8 @@ import cx_Oracle
 
 qa_types = {'MR structural (FSPGR)': 'structural', 
             'MR structural (MPRAGE)': 'structural', 
-            'MR structural (T1)': 'structural'}
+            'MR structural (T1)': 'structural', 
+            'fMRI': 'time series'}
 
 progname = os.path.basename(sys.argv[0])
 
@@ -18,7 +19,7 @@ parser = argparse.ArgumentParser(description=description)
 parser.add_argument('--bogus', '-b', 
                     action='store_true', 
                     default=False, 
-                    help='queue bogus structural runs')
+                    help='queue bogus runs')
 parser.add_argument('--file', '-f', 
                     type=file, 
                     help='file containing S3 files to process')
@@ -30,6 +31,10 @@ parser.add_argument('--check-only', '-c',
                     action='store_true', 
                     default=False, 
                     help='check only, don\'t actually queue')
+parser.add_argument('--type', '-t', 
+                    dest='types', 
+                    action='append', 
+                    help='QA types to queue (one -t per type)')
 parser.add_argument('files', 
                     help='S3 files to process', 
                     nargs='*')
@@ -143,11 +148,18 @@ else:
 for f in files:
     print f
     qa_type = qa_types[f]
+    if args.types is not None and qa_type not in args.types:
+        continue
     if qa_type == 'structural':
         cmd_args = ['qsub', '/ndar/sge/launch_structural_qa']
-    if args.bogus:
-        cmd_args.append('--bogus')
-    cmd_args.append(f)
+        if args.bogus:
+            cmd_args.append('--bogus')
+        cmd_args.append(f)
+    if qa_type == 'time series':
+        cmd_args = ['qsub', '/ndar/sge/launch_time_series_qa']
+        if args.bogus:
+            cmd_args.append('--bogus')
+        cmd_args.append(f)
     po = subprocess.Popen(cmd_args, 
                           stdout=subprocess.PIPE, 
                           stderr=subprocess.PIPE)
