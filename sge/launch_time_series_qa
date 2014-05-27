@@ -103,8 +103,8 @@ else
     zip -r ${subj_id}.zip $subj_id
     aws s3 cp ${subj_id}.zip $s3_base/${subj_id}.zip
 
-    store_time_series_qa --file-name bogus-$image_file \
-                         --subjectkey bogus-$subjectkey \
+    store_time_series_qa --file-name $image_file \
+                         --subjectkey $subjectkey \
                          --interview-age $interview_age \
                          --image03-id $image03_id
 
