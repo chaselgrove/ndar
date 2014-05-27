@@ -73,7 +73,10 @@ if args.all:
                  FROM image03 
                 WHERE scan_type = :st 
                   AND image_file NOT IN (SELECT file_source 
-                                           FROM imaging_qa01)"""
+                                           FROM imaging_qa01 
+                                          UNION 
+                                         SELECT file_source 
+                                           FROM time_series_qa00)"""
     for scan_type in qa_types.keys():
         c.execute(query, {'st': scan_type})
         for row in c:
@@ -88,9 +91,12 @@ else:
 
 print '%d files to process' % len(files)
 
-print 'reading imaging_qa01...'
+print 'reading imaging_qa01 and time_series_qa00...'
 
-c.execute("SELECT file_source FROM imaging_qa01")
+query = """SELECT file_source FROM imaging_qa01 
+            UNION 
+           SELECT file_source FROM time_series_qa00"""
+c.execute(query)
 qa_done_files = [ row[0] for row in c ]
 
 print 'reading image03...'
@@ -105,6 +111,14 @@ for (image_file, scan_type) in c:
         qa_type = None
     scan_types[image_file][scan_type] = qa_type
 
+subject_info = {}
+query = """SELECT DISTINCT image_file, subjectkey, interview_age, image03_id 
+             FROM image03"""
+c.execute(query)
+for (image_file, subjectkey, interview_age, image03_id) in c:
+    subject_info.setdefault(image_file, [])
+    subject_info[image_file].append((subjectkey, interview_age, image03_id))
+
 c.close()
 db.close()
 
@@ -115,7 +129,7 @@ error = False
 qa_types = {}
 for f in files:
     if f in qa_done_files:
-        print 'ERROR: %s is in imaging_qa01' % f
+        print 'ERROR: %s is in imaging_qa01 or time_series_qa00' % f
         error = True
         continue
     try:
@@ -132,6 +146,10 @@ for f in files:
         print 'ERROR: unset or unsupported scan type for %s' % f
         error = True
     qa_types[f] = qa_type
+    if len(subject_info[f]) > 1:
+        fmt = 'ERROR: multiple subject key, interview age, image03 id for %s'
+        print fmt % f
+        error = True
 
 if error:
     sys.exit(1)
@@ -159,6 +177,10 @@ for f in files:
         cmd_args = ['qsub', '/ndar/sge/launch_time_series_qa']
         if args.bogus:
             cmd_args.append('--bogus')
+        # subjectkey, interview_age, image03_id
+        cmd_args.append(subject_info[f][0][0])
+        cmd_args.append(str(subject_info[f][0][1]))
+        cmd_args.append(str(subject_info[f][0][2]))
         cmd_args.append(f)
     po = subprocess.Popen(cmd_args, 
                           stdout=subprocess.PIPE, 
