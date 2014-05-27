@@ -1,0 +1,112 @@
+#$ -V
+#$ -S /bin/bash
+#$ -o $HOME/logs/time_series_qa.$JOB_ID.stdout
+#$ -e $HOME/logs/time_series_qa.$JOB_ID.stderr
+#$ -l s_rt=0:20:00
+
+if [ x"$1" = x"--bogus" ]
+then
+    bogus_run=1
+    shift
+else
+    bogus_run=
+fi
+
+clean_up()
+{
+
+    echo 'cleaning up'
+
+    if [ -z $working_dir ] ; then return 0 ; fi
+
+    if [ ! -d $working_dir ] ; then return 0 ; fi
+
+    rm -r $working_dir
+
+    return 0
+
+} # end clean_up()
+
+time_out()
+{
+
+    echo 'soft time limit reached; exiting'
+
+    exit 3
+
+} # end time_out()
+
+trap clean_up EXIT
+trap time_out USR1
+
+set -e
+
+subjectkey="$1"
+interview_age="$2"
+image03_id="$3"
+image_file="$4"
+
+s3_base=s3://NITRC_data/fmriqa
+
+subj_id=${subjectkey}-${interview_age}-${image03_id}
+
+if [ $bogus_run ]
+then
+    subj_id="bogus-$subj_id"
+fi
+
+cat << EOF
+
+starting fmriqa_generate.pl
+
+`date`
+
+subjectkey = $subjectkey
+interview_age = $interview_age
+image03_id = $image03_id
+image_file = $image_file
+s3_base = $s3_base
+subj_id = $subj_id
+bogus_run = $bogus_run
+instance ID = `GET http://169.254.169.254/latest/meta-data/instance-id`
+instance type = `GET http://169.254.169.254/latest/meta-data/instance-type`
+
+EOF
+
+working_dir=`mktemp -d --tmpdir=/scratch/ubuntu`
+
+cd $working_dir
+
+if [ $bogus_run ]
+then
+
+    :
+#    cp -rv /ndar/test_data/time_series_qa/* .
+
+#    store_structural_qa --file-name bogus-$file_name .
+
+else
+
+    echo 'starting time series QA'
+
+    ndar_unpack $image_file -v data.nii.gz
+    analyze2bxh --xcede data.nii.gz data.xcede
+    fmriqa_generate.pl --verbose data.xcede $subj_id
+
+
+#    store_structural_qa --file-name $file_name .
+
+fi
+
+cd
+
+clean_up
+trap '' EXIT
+
+echo
+echo done `date`
+echo
+
+exit 0
+
+# eof
