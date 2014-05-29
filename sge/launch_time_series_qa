@@ -97,7 +97,7 @@ else
 
     ndar_unpack $image_file -v data.nii.gz
     analyze2bxh --xcede data.nii.gz data.xcede
-    /usr/bin/time -v fmriqa_generate.pl --verbose data.xcede $subj_id
+    /usr/bin/time -v fmriqa_generate.pl --verbose --qalabel $subj_id data.xcede $subj_id
     cp data.xcede $subj_id
 
     zip -r ${subj_id}.zip $subj_id
