@@ -89,7 +89,8 @@ then
     store_time_series_qa --file-name bogus-$image_file \
                          --subjectkey bogus-$subjectkey \
                          --interview-age $interview_age \
-                         --image03-id $image03_id
+                         --image03-id $image03_id \
+                         ${subj_id}/index.html
 
 else
 
@@ -106,7 +107,8 @@ else
     store_time_series_qa --file-name $image_file \
                          --subjectkey $subjectkey \
                          --interview-age $interview_age \
-                         --image03-id $image03_id
+                         --image03-id $image03_id \
+                         ${subj_id}/index.html
 
 fi
 
