@@ -73,10 +73,7 @@ if args.all:
                  FROM image03 
                 WHERE scan_type = :st 
                   AND image_file NOT IN (SELECT file_source 
-                                           FROM imaging_qa01 
-                                          UNION 
-                                         SELECT file_source 
-                                           FROM time_series_qa00)"""
+                                           FROM imaging_qa01)"""
     for scan_type in qa_types.keys():
         c.execute(query, {'st': scan_type})
         for row in c:
@@ -91,11 +88,9 @@ else:
 
 print '%d files to process' % len(files)
 
-print 'reading imaging_qa01 and time_series_qa00...'
+print 'reading imaging_qa01...'
 
-query = """SELECT file_source FROM imaging_qa01 
-            UNION 
-           SELECT file_source FROM time_series_qa00"""
+query = """SELECT file_source FROM imaging_qa01)"""
 c.execute(query)
 qa_done_files = [ row[0] for row in c ]
 
@@ -129,7 +124,7 @@ error = False
 qa_types = {}
 for f in files:
     if f in qa_done_files:
-        print 'ERROR: %s is in imaging_qa01 or time_series_qa00' % f
+        print 'ERROR: %s is in imaging_qa01' % f
         error = True
         continue
     try:
