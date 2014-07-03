@@ -65,7 +65,7 @@ starting fmriqa_generate.pl
 subjectkey = $subjectkey
 interview_age = $interview_age
 image03_id = $image03_id
-image_file = $image_file
+image_file = "$image_file"
 s3_base = $s3_base
 subj_id = $subj_id
 bogus_run = $bogus_run
@@ -86,7 +86,7 @@ then
     zip -r ${subj_id}.zip $subj_id
     aws s3 cp ${subj_id}.zip $s3_base/${subj_id}.zip
 
-    store_time_series_qa --file-name bogus-$image_file \
+    store_time_series_qa --file-name bogus-"$image_file" \
                          --subjectkey bogus-$subjectkey \
                          --interview-age $interview_age \
                          --image03-id $image03_id \
@@ -96,7 +96,7 @@ else
 
     echo 'starting time series QA'
 
-    ndar_unpack $image_file -v data.nii.gz
+    ndar_unpack "$image_file" -v data.nii.gz
     analyze2bxh --xcede data.nii.gz data.xcede
     /usr/bin/time -v fmriqa_generate.pl --verbose --qalabel $subj_id data.xcede $subj_id
     cp data.xcede $subj_id
@@ -104,7 +104,7 @@ else
     zip -r ${subj_id}.zip $subj_id
     aws s3 cp ${subj_id}.zip $s3_base/${subj_id}.zip
 
-    store_time_series_qa --file-name $image_file \
+    store_time_series_qa --file-name "$image_file" \
                          --subjectkey $subjectkey \
                          --interview-age $interview_age \
                          --image03-id $image03_id \
