@@ -2,7 +2,7 @@
 #$ -S /bin/bash
 #$ -o $HOME/logs/time_series_qa.$JOB_ID.stdout
 #$ -e $HOME/logs/time_series_qa.$JOB_ID.stderr
-#$ -l s_rt=0:20:00
+#$ -l s_rt=1:00:00
 
 if [ x"$1" = x"--bogus" ]
 then
