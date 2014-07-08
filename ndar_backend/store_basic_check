@@ -1,0 +1,63 @@
+#!/usr/bin/python
+
+import sys
+import os
+import argparse
+import cx_Oracle
+
+progname = os.path.basename(sys.argv[0])
+
+description = 'Store basic check results to an NDAR database.'
+parser = argparse.ArgumentParser(description=description)
+
+parser.add_argument('--file-name', 
+                    required=True, 
+                    help='original file name (from image03)')
+parser.add_argument('stdout', 
+                    help='path to stdout')
+parser.add_argument('stderr', 
+                    help='path to stderr')
+
+args = parser.parse_args()
+
+for var in ('DB_HOST', 'DB_SERVICE', 'DB_USER', 'DB_PASSWORD'):
+    if var not in os.environ:
+        sys.stderr.write('%s: %s not set\n' % (progname, var))
+        sys.exit(1)
+
+print 'reading %s...' % args.stdout
+
+try:
+    stdout = open(args.stdout).read()
+except Exception, data:
+    sys.stderr.write('%s: %s\n' % (progname, str(data)))
+    sys.exit(1)
+
+print 'reading %s...' % args.stderr
+
+try:
+    stderr = open(args.stderr).read()
+except Exception, data:
+    sys.stderr.write('%s: %s\n' % (progname, str(data)))
+    sys.exit(1)
+
+dsn = cx_Oracle.makedsn(os.environ['DB_HOST'], 1521, os.environ['DB_SERVICE'])
+db = cx_Oracle.connect(os.environ['DB_USER'], os.environ['DB_PASSWORD'], dsn)
+
+query = """INSERT INTO basic_check (image_file, stdout, stderr) 
+           VALUES (:image_file, :stdout, :stderr)"""
+query_params = {'image_file': args.image_file, 
+                'stdout': stdout, 
+                'stderr': stderr}
+
+c = db.cursor()
+c.execute(query, query_params)
+c.close()
+
+db.commit()
+
+db.close()
+
+sys.exit(0)
+
+# eof
