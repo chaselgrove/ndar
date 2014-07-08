@@ -46,7 +46,7 @@ db = cx_Oracle.connect(os.environ['DB_USER'], os.environ['DB_PASSWORD'], dsn)
 
 query = """INSERT INTO basic_check (image_file, stdout, stderr) 
            VALUES (:image_file, :stdout, :stderr)"""
-query_params = {'image_file': args.image_file, 
+query_params = {'image_file': args.file_name, 
                 'stdout': stdout, 
                 'stderr': stderr}
 
