@@ -20,8 +20,6 @@ clean_up()
 
 trap clean_up EXIT
 
-set -e
-
 subjectkey="$1"
 interview_age="$2"
 image03_id="$3"
@@ -63,13 +61,18 @@ ndar_unpack --thumbnail thumbnail.png \
 
 echo '=== aws s3 cp ===' >> stdout
 echo '=== aws s3 cp ===' >> stderr
-aws s3 cp thumbnail.png $s3_base/${subj_id}.png
+aws s3 cp thumbnail.png $s3_base/${subj_id}.png >> stdout 2>> stderr
 
+echo '=== store_derived_image03 ===' >> stdout
+echo '=== store_derived_image03 ===' >> stderr
 store_derived_image03 --subjectkey $subjectkey \
                       --interview-age $interview_age \
                       --image03-id $image03_id \
                       --file-name "$image_file" \
                       image03.json >> stdout 2>> stderr
+
+cat stdout
+cat stderr >&2
 
 store_basic_check --file-name "$image_file" stdout stderr
 
