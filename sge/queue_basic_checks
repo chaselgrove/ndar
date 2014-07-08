@@ -108,7 +108,10 @@ for f in files:
         continue
     (subjectkey, interview_age, image03_id, _) = image03[f][0]
     cmd_args = ['qsub', '/ndar/sge/launch_basic_checks']
-    cmd_args.extend((subjectkey, str(interview_age), str(image03_id)))
+    cmd_args.append(subjectkey)
+    cmd_args.append(str(interview_age))
+    cmd_args.append(str(image03_id))
+    cmd_args.append(f)
     po = subprocess.Popen(cmd_args, 
                           stdout=subprocess.PIPE, 
                           stderr=subprocess.PIPE)
