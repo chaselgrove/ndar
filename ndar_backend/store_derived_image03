@@ -1,0 +1,72 @@
+#!/usr/bin/python
+
+import sys
+import os
+import argparse
+import json
+import cx_Oracle
+
+progname = os.path.basename(sys.argv[0])
+
+description = 'Store derived image03 to an NDAR database.'
+parser = argparse.ArgumentParser(description=description)
+
+parser.add_argument('--file-name', 
+                    required=True, 
+                    help='original file name (from image03)')
+parser.add_argument('--subjectkey', 
+                    required=True)
+parser.add_argument('--interview-age', 
+                    required=True, 
+                    type=int)
+parser.add_argument('--image03-id', 
+                    required=True, 
+                    type=int)
+parser.add_argument('image03_file', 
+                    help='path to image03.json')
+
+args = parser.parse_args()
+
+for var in ('DB_HOST', 'DB_SERVICE', 'DB_USER', 'DB_PASSWORD'):
+    if var not in os.environ:
+        sys.stderr.write('%s: %s not set\n' % (progname, var))
+        sys.exit(1)
+
+print 'reading %s...' % args.image03_file
+
+try:
+    fo = open(args.image03_file)
+except Exception, data:
+    sys.stderr.write('%s: %s\n' % (progname, str(data)))
+    sys.exit(1)
+
+image03 = json.load(fo)
+fo.close()
+
+dsn = cx_Oracle.makedsn(os.environ['DB_HOST'], 1521, os.environ['DB_SERVICE'])
+db = cx_Oracle.connect(os.environ['DB_USER'], os.environ['DB_PASSWORD'], dsn)
+
+image03['subjectkey'] = args.subjectkey
+image03['interview_age'] = args.interview_age
+image03['image03_id'] = args.image03_id
+
+cols = image03.keys()
+vals = [ ':%s' % col for col in cols ]
+
+col_string = ', '.join(cols)
+val_string = ', '.join(vals)
+
+query = "INSERT INTO image03_derived (%s) VALUES (%s)" % (col_string, 
+                                                          val_string)
+
+c = db.cursor()
+c.execute(query, image03)
+c.close()
+
+db.commit()
+
+db.close()
+
+sys.exit(0)
+
+# eof
