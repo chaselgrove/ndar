@@ -1,0 +1,79 @@
+#$ -V
+#$ -S /bin/bash
+#$ -o $HOME/logs/basic_checks.$JOB_ID.stdout
+#$ -e $HOME/logs/basic_checks.$JOB_ID.stderr
+
+clean_up()
+{
+
+    echo 'cleaning up'
+
+    if [ -z $working_dir ] ; then return 0 ; fi
+
+    if [ ! -d $working_dir ] ; then return 0 ; fi
+
+    rm -r $working_dir
+
+    return 0
+
+} # end clean_up()
+
+trap clean_up EXIT
+
+set -e
+
+subjectkey="$1"
+interview_age="$2"
+image03_id="$3"
+image_file="$4"
+s3_base="$5"
+
+# strip trailing /
+s3_base=`echo "$s3_base" | sed 's+/*$++'`
+
+subj_id=${subjectkey}-${interview_age}-${image03_id}
+
+cat << EOF
+
+starting basic checks
+
+`date`
+
+subjectkey = $subjectkey
+interview_age = $interview_age
+image03_id = $image03_id
+image_file = "$image_file"
+s3_base = $s3_base
+subj_id = $subj_id
+instance ID = `GET http://169.254.169.254/latest/meta-data/instance-id`
+instance type = `GET http://169.254.169.254/latest/meta-data/instance-type`
+
+EOF
+
+working_dir=`mktemp -d --tmpdir=/scratch/ubuntu`
+
+cd $working_dir
+
+ndar_unpack --thumbnail thumbnail.png \
+            --image03 image03.json \
+            --format json \
+            "$image_file"
+
+aws s3 cp thumbnail.png $s3_base/${subj_id}.png
+
+store_derived_image03 --subjectkey $subjectkey \
+                      --interview-age $interview_age \
+                      -image03-id $image03_id \
+                      -file-name "$image_file" \
+                      image03.json
+
+clean_up
+trap '' EXIT
+
+echo
+echo done `date`
+echo
+
+exit 0
+
+# eof
