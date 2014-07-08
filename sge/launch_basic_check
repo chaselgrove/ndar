@@ -54,18 +54,22 @@ working_dir=`mktemp -d --tmpdir=/scratch/ubuntu`
 
 cd $working_dir
 
+echo '=== ndar_unpack ===' > stdout
+echo '=== ndar_unpack ===' > stderr
 ndar_unpack --thumbnail thumbnail.png \
             --image03 image03.json \
             --format json \
-            "$image_file" > stdout 2> stderr
+            "$image_file" >> stdout 2>> stderr
 
+echo '=== aws s3 cp ===' >> stdout
+echo '=== aws s3 cp ===' >> stderr
 aws s3 cp thumbnail.png $s3_base/${subj_id}.png
 
 store_derived_image03 --subjectkey $subjectkey \
                       --interview-age $interview_age \
                       --image03-id $image03_id \
                       --file-name "$image_file" \
-                      image03.json
+                      image03.json >> stdout 2>> stderr
 
 store_basic_check --file-name "$image_file" stdout stderr
 
