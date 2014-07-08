@@ -63,23 +63,23 @@ for row in c:
 image03_files = set(image03)
 print '    %d' % len(image03_files)
 
-print 'getting basic_checks files...'
-c.execute("SELECT DISTINCT image_file FROM basic_checks")
-basic_checks_files = set([ row[0] for row in c ])
-print '    %d' % len(basic_checks_files)
+print 'getting basic_check files...'
+c.execute("SELECT DISTINCT image_file FROM basic_check")
+basic_check_files = set([ row[0] for row in c ])
+print '    %d' % len(basic_check_files)
 
 if args.all:
-    files = image03_files - basic_checks_files
+    files = image03_files - basic_check_files
 else:
     desired_files = set()
     if args.file:
         desired_files.update([ line.rstrip('\n') for line in args.file ])
     if args.files:
         desired_files.update(args.files)
-    done_files = desired_files.intersection(basic_checks_files)
+    done_files = desired_files.intersection(basic_check_files)
     for file in done_files:
         print 'NOTICE: already done: %s' % file
-    desired_files.difference_update(basic_checks_files)
+    desired_files.difference_update(basic_check_files)
     unknown_files = desired_files - image03_files
     for file in unknown_files:
         print 'NOTICE: unknown: %s' % file
@@ -102,12 +102,12 @@ for f in files:
     print f
     if len(image03[f]) > 1:
         print '    multiple entries'
-        query = """INSERT INTO basic_checks (image_file, note) 
+        query = """INSERT INTO basic_check (image_file, note) 
                    VALUES (:image_file, :note)"""
         c.execute(query, {'image_file': f, 'note': 'multiple entries'})
         continue
     (subjectkey, interview_age, image03_id, _) = image03[f][0]
-    cmd_args = ['qsub', '/ndar/sge/launch_basic_checks']
+    cmd_args = ['qsub', '/ndar/sge/launch_basic_check']
     cmd_args.append(subjectkey)
     cmd_args.append(str(interview_age))
     cmd_args.append(str(image03_id))

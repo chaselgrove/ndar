@@ -1,7 +1,7 @@
 #$ -V
 #$ -S /bin/bash
-#$ -o $HOME/logs/basic_checks.$JOB_ID.stdout
-#$ -e $HOME/logs/basic_checks.$JOB_ID.stderr
+#$ -o $HOME/logs/basic_check.$JOB_ID.stdout
+#$ -e $HOME/logs/basic_check.$JOB_ID.stderr
 
 clean_up()
 {
