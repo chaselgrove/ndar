@@ -61,7 +61,16 @@ ndar_unpack --thumbnail thumbnail.png \
 
 echo '=== aws s3 cp ===' >> stdout
 echo '=== aws s3 cp ===' >> stderr
-aws s3 cp thumbnail.png $s3_base/${subj_id}.png >> stdout 2>> stderr
+s3_thumbnail=$s3_base/${subj_id}.png
+aws s3 cp thumbnail.png $s3_thumbnail >> stdout 2>> stderr
+if [ $? -eq 0 ]
+then
+    jq ".image_thumbnail_file=\"$s3_thumbnail\"" image03.json > tmp.json
+    mv tmp.json image03.json
+fi
+
+jq ".image_file=\"$image_file\"" image03.json > tmp.json
+mv tmp.json image03.json
 
 echo '=== store_derived_image03 ===' >> stdout
 echo '=== store_derived_image03 ===' >> stderr
