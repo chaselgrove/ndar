@@ -102,9 +102,6 @@ for f in files:
     print f
     if len(image03[f]) > 1:
         print '    multiple entries'
-        query = """INSERT INTO basic_check (image_file, note) 
-                   VALUES (:image_file, :note)"""
-        c.execute(query, {'image_file': f, 'note': 'multiple entries'})
         continue
     (_, subjectkey, interview_age, image03_id) = image03[f][0]
     cmd_args = ['qsub', '/ndar/sge/launch_basic_check']
