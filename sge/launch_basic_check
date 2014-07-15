@@ -57,6 +57,8 @@ echo '=== ndar_unpack ===' > stderr
 ndar_unpack --thumbnail thumbnail.png \
             --image03 image03.json \
             --format json \
+            --contents contents \
+            --header header \
             "$image_file" >> stdout 2>> stderr
 
 echo '=== aws s3 cp ===' >> stdout
@@ -83,7 +85,7 @@ store_derived_image03 --subjectkey $subjectkey \
 cat stdout
 cat stderr >&2
 
-store_basic_check --file-name "$image_file" stdout stderr
+store_basic_check --file-name "$image_file" stdout stderr contents header
 
 clean_up
 trap '' EXIT

@@ -17,6 +17,10 @@ parser.add_argument('stdout',
                     help='path to stdout')
 parser.add_argument('stderr', 
                     help='path to stderr')
+parser.add_argument('contents', 
+                    help='path to contents')
+parser.add_argument('header', 
+                    help='path to header')
 
 args = parser.parse_args()
 
@@ -41,14 +45,34 @@ except Exception, data:
     sys.stderr.write('%s: %s\n' % (progname, str(data)))
     sys.exit(1)
 
+print 'reading %s...' % args.contents
+
+try:
+    contents = open(args.contents).read()
+except Exception, data:
+    sys.stderr.write('%s: %s\n' % (progname, str(data)))
+    sys.exit(1)
+
+try:
+    header = open(args.header).read()
+except Exception, data:
+    sys.stderr.write('%s: %s\n' % (progname, str(data)))
+    sys.exit(1)
+
 dsn = cx_Oracle.makedsn(os.environ['DB_HOST'], 1521, os.environ['DB_SERVICE'])
 db = cx_Oracle.connect(os.environ['DB_USER'], os.environ['DB_PASSWORD'], dsn)
 
-query = """INSERT INTO basic_check (image_file, stdout, stderr) 
-           VALUES (:image_file, :stdout, :stderr)"""
+query = """INSERT INTO basic_check (image_file, 
+                                    stdout, 
+                                    stderr, 
+                                    contents, 
+                                    header) 
+           VALUES (:image_file, :stdout, :stderr, :contents, :header)"""
 query_params = {'image_file': args.file_name, 
                 'stdout': stdout, 
-                'stderr': stderr}
+                'stderr': stderr, 
+                'contents': contents, 
+                'header': header}
 
 c = db.cursor()
 c.execute(query, query_params)
