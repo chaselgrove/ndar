@@ -4,11 +4,7 @@
 {% block content %}
 
 <p>
-Multiples: {{ multiples|length }}
-</p>
-
-<p>
-Unchecked: {{ unchecked|length }}
+Multiples: {{ summary.multiples|length }}
 </p>
 
 <table border="1">
@@ -19,7 +15,7 @@ Unchecked: {{ unchecked|length }}
         <th>Total: Okay/Error</th>
     </tr>
     <tr>
-        <td rowspan="6">MR</td>
+        <td rowspan="6">MR ({{ summary.modalities['MR']|length }})</td>
         <td rowspan="3">Structural</td>
         <td>MR structural (FSPGR)</td>
         <td></td>
