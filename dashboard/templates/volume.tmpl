@@ -1,0 +1,38 @@
+{% extends "base.tmpl" %}
+{% block title %}{{ spec|e }}{% endblock %}
+
+{% block content %}
+<p>volume</p>
+<a href="/source/{{ volume.s3_link|e }}">{{ volume.s3_link|e }}</a>
+{% if volume.thumbnail_link %}
+    <img src="{{ volume.thumbnail_link|e }}" />
+{% else %}
+    No thumbnail.
+{% endif %}
+
+<table>
+    <tr>
+        <th>field</th>
+        {% if volume.image03_derived %}
+            <th>derived value</th>
+        {% else %}
+            <th>no derived</th>
+        {% endif %}
+        <th colspan={{ volume.image03|length }}>image03</th>
+    </tr>
+    {% for field in volume.image03_cols %}
+        <tr>
+            <td>{{ field|e }}</td>
+            {% if volume.image03_derived %}
+                <td>{{ volume.image03_derived[field]|e }}</td>
+            {% else %}
+                <td></td>
+            {% endif %}
+            {% for im03 in volume.image03 %}
+                <td>{{ im03[field]|e }}</td>
+            {% endfor %}
+        </tr>
+    {% endfor %}
+</table>
+
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.tmpl" %}
+{% block title %}Home{% endblock %}
+
+{% block content %}
+
+<p>
+Multiples: {{ multiples|length }}
+</p>
+
+<p>
+Unchecked: {{ unchecked|length }}
+</p>
+
+<table border="1">
+    <tr>
+        <th>Modality</th>
+        <th>Class</th>
+        <th>Type</th>
+        <th>Total: Okay/Error</th>
+    </tr>
+    <tr>
+        <td rowspan="6">MR</td>
+        <td rowspan="3">Structural</td>
+        <td>MR structural (FSPGR)</td>
+        <td></td>
+    </tr>
+    <tr>
+        <td>MR structural (MPRAGE)</td>
+        <td></td>
+    </tr>
+    <tr>
+        <td>MR structural (T1)</td>
+        <td></td>
+    </tr>
+    <tr>
+        <td>Time Series</td>
+        <td>fMRI</td>
+        <td></td>
+    </tr>
+    <tr>
+        <td>Diffusion</td>
+        <td>MR Diffusion</td>
+        <td></td>
+    </tr>
+    <tr>
+        <td>Other</td>
+        <td></td>
+        <td></td>
+    </tr>
+    <tr>
+        <td>Other</td>
+        <td></td>
+        <td></td>
+        <td></td>
+    </tr>
+</table>
+
+{% endblock %}
