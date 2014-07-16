@@ -1,0 +1,182 @@
+#!/usr/bin/python
+
+import sys
+import os
+import csv
+import boto.s3.connection
+import cx_Oracle
+
+progname = os.path.basename(sys.argv[0])
+
+for var in ('DB_HOST', 
+            'DB_SERVICE', 
+            'DB_USER', 
+            'DB_PASSWORD', 
+            'AWS_ACCESS_KEY_ID', 
+            'AWS_SECRET_ACCESS_KEY'):
+    if var not in os.environ:
+        sys.stderr.write('%s: %s not set\n' % (progname, var))
+        sys.exit(1)
+
+dsn = cx_Oracle.makedsn(os.environ['DB_HOST'], 1521, os.environ['DB_SERVICE'])
+db = cx_Oracle.connect(os.environ['DB_USER'], os.environ['DB_PASSWORD'], dsn)
+
+c = db.cursor()
+
+c.execute("SELECT COUNT(*) FROM summary")
+if c.fetchone()[0]:
+    sys.stderr.write('%s: table summary contains data\n' % progname)
+    sys.exit(1)
+
+print 'reading image03...'
+
+image03 = {}
+query = """SELECT image_file, 
+                  image03_id, 
+                  subjectkey, 
+                  interview_age, 
+                  image_modality, 
+                  scan_type 
+             FROM image03"""
+c.execute(query)
+cols = [ el[0] for el in c.description ]
+for row in c:
+    row_dict = dict(zip(cols, row))
+    image_file = row_dict['IMAGE_FILE']
+    image03.setdefault(image_file, [])
+    image03[image_file].append(row_dict)
+
+print 'reading imaging_qa01...'
+
+qa = {}
+query = """SELECT file_source, external_min, input_pot_clipped_voxels 
+             FROM imaging_qa01"""
+c.execute(query)
+for (file_source, external_min, input_pot_clipped_voxels) in c:
+    d = {'has_structural_qa': 0, 
+         'has_time_series_qa': 0}
+    if external_min is not None:
+        d['has_structural_qa'] = 1
+    if input_pot_clipped_voxels is not None:
+        d['has_time_series_qa'] = 1
+    qa[file_source] = d
+
+print 'reading basic_check...'
+
+query = """SELECT image_file FROM basic_check"""
+c.execute(query)
+basic_check = [ row[0] for row in c ]
+
+print 'reading image03_derived...'
+
+query = """SELECT image_file FROM image03_derived"""
+c.execute(query)
+image03_derived = [ row[0] for row in c ]
+
+print 'getting thumbnails...'
+
+thumbnails = []
+cf = boto.s3.connection.OrdinaryCallingFormat()
+s3 = boto.s3.connection.S3Connection(os.environ['AWS_ACCESS_KEY_ID'], 
+                                     os.environ['AWS_SECRET_ACCESS_KEY'], 
+                                     calling_format=cf)
+bucket = s3.get_bucket('NITRC_data')
+for k in bucket.list():
+    if not k.key.startswith('thumbnails/'):
+        continue
+    if k.key == 'thumbnails/':
+        continue
+    # strip thumbnails/ and .png
+    base = k.key[11:-4]
+    (subjectkey, interview_age, image03_id) = base.split('-')
+    interview_age = int(interview_age)
+    image03_id = int(image03_id)
+    thumbnails.append((subjectkey, interview_age, image03_id))
+s3.close()
+
+print 'loading summary...'
+
+query = """INSERT INTO summary (image_file, 
+                                n_image03, 
+                                image03_id, 
+                                subjectkey, 
+                                interview_age, 
+                                image_modality, 
+                                scan_type, 
+                                has_basic_check, 
+                                has_thumbnail, 
+                                has_derived_image03, 
+                                has_structural_qa, 
+                                has_time_series_qa)
+           VALUES (:image_file, 
+                   :n_image03, 
+                   :image03_id, 
+                   :subjectkey, 
+                   :interview_age, 
+                   :image_modality, 
+                   :scan_type, 
+                   :has_basic_check, 
+                   :has_thumbnail, 
+                   :has_derived_image03, 
+                   :has_structural_qa, 
+                   :has_time_series_qa)"""
+
+all_params = []
+
+nf = 0.00
+n = 0
+for image_file in image03:
+    n += 1
+    f = n / float(len(image03))
+    if f >= nf:
+        print '%d/%d (%.0f%%)' % (n, len(image03), 100*nf)
+        nf += 0.01
+    query_params = {'image_file': image_file, 
+                    'image03_id': None, 
+                    'subjectkey': None, 
+                    'interview_age': None, 
+                    'image_modality': None, 
+                    'scan_type': None, 
+                    'has_basic_check': None, 
+                    'has_thumbnail': None, 
+                    'has_derived_image03': None, 
+                    'has_structural_qa': None, 
+                    'has_time_series_qa': None}
+    query_params['n_image03'] = len(image03[image_file])
+    if len(image03[image_file]) > 1:
+        all_params.append(query_params)
+        continue
+    i03 = image03[image_file][0]
+    d['image03_id'] = i03['IMAGE03_ID']
+    d['subjectkey'] = i03['SUBJECTKEY']
+    d['interview_age'] = i03['INTERVIEW_AGE']
+    d['image_modality'] = i03['IMAGE_MODALITY']
+    d['scan_type'] = i03['SCAN_TYPE']
+    if image_file in basic_check:
+        d['has_basic_check'] = 1
+    else:
+        d['has_basic_check'] = 0
+    t = (i03['SUBJECTKEY'], i03['INTERVIEW_AGE'], i03['IMAGE03_ID'])
+    if t in thumbnails:
+        d['has_thumbnail'] = 1
+    else:
+        d['has_thumbnail'] = 0
+    if image_file in image03_derived:
+        d['has_derived_image03'] = 1
+    else:
+        d['has_derived_image03'] = 0
+    if image_file in qa:
+        d['has_structural_qa'] = qa[image_file]['has_structural_qa']
+        d['has_time_series_qa'] = qa[image_file]['has_time_series_qa']
+    else:
+        d['has_structural_qa'] = 0
+        d['has_time_series_qa'] = 0
+    all_params.append(query_params)
+
+c.executemany(query, all_params)
+
+db.commit()
+
+sys.exit(0)
+
+# eof
