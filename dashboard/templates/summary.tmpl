@@ -1,0 +1,32 @@
+{% extends "base.tmpl" %}
+{% block title %}{{ title|e }}{% endblock %}
+
+{% block content %}
+
+{{ success|length }} success
+{{ error|length }} error
+
+<table border="1">
+    <tr>
+        <th>subjectkey</th>
+        <th>interview age</th>
+        <th>image03 id</th>
+        <th>basic</th>
+        <th>thumbnail</th>
+        <th>derived</th>
+        <th>ts qa</th>
+    </tr>
+    {% for el in error %}
+    <tr>
+        <td>{{ el['subjectkey']|e }}</td>
+        <td>{{ el['interview_age'] }}</td>
+        <td>{{ el['image03_id'] }}</td>
+        <td>{{ el['has_basic_check'] }}</td>
+        <td>{{ el['has_thumbnail'] }}</td>
+        <td>{{ el['has_derived_image03'] }}</td>
+        <td>{{ el['has_time_series_qa'] }}</td>
+    </tr>
+    {% endfor %}
+</table>
+
+{% endblock %}

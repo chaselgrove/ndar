@@ -146,14 +146,37 @@ db_dsn = cx_Oracle.makedsn(os.environ['DB_HOST'],
 
 app = flask.Flask(__name__)
 
-import time
-t0 = time.time()
-summary = Summary()
-print time.time() - t0
+#import time
+#t0 = time.time()
+#summary = Summary()
+#print time.time() - t0
 
 @app.route('/')
 def index():
     return flask.render_template('index.tmpl', summary=summary)
+
+@app.route('/time_series')
+def time_series():
+    success = []
+    error = []
+    with DB() as c:
+        query = """SELECT *
+                     FROM summary 
+                    WHERE scan_type = 'fMRI' 
+                    ORDER BY image_file"""
+        c.execute(query)
+        cols = [ el[0].lower() for el in c.description ]
+        for row in c:
+            d = dict(zip(cols, row))
+            if d['has_time_series_qa']:
+                success.append(d)
+            else:
+                error.append(d)
+    return flask.render_template('summary.tmpl', 
+                                 title='fMRI', 
+                                 success=success, 
+                                 error=error)
+    return
 
 @app.route('/volume/<path:spec>')
 def volume(spec):
