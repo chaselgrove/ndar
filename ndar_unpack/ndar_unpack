@@ -67,8 +67,8 @@ exit values are:
     Bad data.  The data is bad.  Maybe it's empty; maybe it's in an 
     unsupported format.  Returns 3.
 
-AWS keys can be specified in the environment as AWS_ACCESS_KEY_ID and 
-AWS_SECRET_ACCESS_KEY.
+AWS credentials can be specified in the environment as AWS_ACCESS_KEY_ID,
+AWS_SECRET_ACCESS_KEY, SECURITY_TOKEN.
 
 Use ndar_unpack -S or ndar_unpack --self-check to check for programs used 
 by ndar_unpack.  These flags override other functions, and ndar_unpack will 
@@ -721,8 +721,10 @@ parser.add_argument('--format', '-f',
 parser.add_argument('--contents', '-c')
 parser.add_argument('--aws-access-key-id', 
                     default=os.environ.get('AWS_ACCESS_KEY_ID'))
-parser.add_argument('--aws-secret-access-key', 
+parser.add_argument('--aws-secret-access-key',
                     default=os.environ.get('AWS_SECRET_ACCESS_KEY'))
+parser.add_argument('--security_token',
+                    default=os.environ.get('SECURITY_TOKEN'))
 parser.add_argument('--debug', '-D', 
                     default=False, 
                     dest='debug_flag', 
@@ -864,7 +866,8 @@ try:
             (bucket, path) = parts
             cf = boto.s3.connection.OrdinaryCallingFormat()
             conn = boto.connect_s3(args.aws_access_key_id, 
-                                   args.aws_secret_access_key, 
+                                   args.aws_secret_access_key,
+                                   args.security_token,
                                    calling_format=cf)
             message(DEBUG, 'getting S3 bucket %s' % bucket)
             b = conn.get_bucket(bucket)
