@@ -1,8 +1,8 @@
 default : build
 
-build : dist/ndar_unpack-0.1.2.tar.gz
+build : dist/ndar_unpack-0.1.3.tar.gz
 
-dist/ndar_unpack-0.1.2.tar.gz : 
+dist/ndar_unpack-0.1.3.tar.gz : 
 	python setup.py sdist
 
 register : 
